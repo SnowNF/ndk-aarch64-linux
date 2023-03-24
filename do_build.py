@@ -1019,13 +1019,12 @@ def main():
             xz_builder = builders.XzBuilder(host_configs)
             xz_builder.build()
             stage2.liblzma = xz_builder
-
-            libncurses = builders.LibNcursesBuilder(host_configs)
-            libncurses.build()
-            stage2.libncurses = libncurses
+            #
+            # libncurses = builders.LibNcursesBuilder(host_configs)
+            # libncurses.build()
+            # stage2.libncurses = libncurses
 
             libedit_builder = builders.LibEditBuilder(host_configs)
-            libedit_builder.libncurses = libncurses
             libedit_builder.build()
             stage2.libedit = libedit_builder
 

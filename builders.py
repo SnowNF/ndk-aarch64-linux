@@ -673,19 +673,15 @@ class LibNcursesBuilder(base_builders.AutoconfBuilder, base_builders.LibInfo):
 class LibEditBuilder(base_builders.AutoconfBuilder, base_builders.LibInfo):
     name: str = 'libedit'
     src_dir: Path = paths.LIBEDIT_SRC_DIR
-    libncurses: base_builders.LibInfo
 
     @property
     def ldflags(self) -> List[str]:
         return [
-            f'-L{self.libncurses.link_libraries[0].parent}',
         ] + super().ldflags
 
     @property
     def cflags(self) -> List[str]:
         flags = []
-        flags.append('-I' + str(self.libncurses.include_dir))
-        flags.append('-I' + str(self.libncurses.include_dir / 'ncurses'))
         return flags + super().cflags
 
 
@@ -1131,11 +1127,7 @@ class WindowsToolchainBuilder(base_builders.LLVMBuilder):
         defines['CLANG_TABLEGEN'] = str(self.toolchain.build_path / 'bin' / 'clang-tblgen')
         defines['CLANG_PSEUDO_GEN'] = str(self.toolchain.build_path / 'bin' / 'clang-pseudo-gen')
         defines['CLANG_TIDY_CONFUSABLE_CHARS_GEN'] = str(self.toolchain.build_path / 'bin' / 'clang-tidy-confusable-chars-gen')
-        if self.build_lldb:
-            defines['LLDB_TABLEGEN'] = str(self.toolchain.build_path / 'bin' / 'lldb-tblgen')
-            defines['LLDB_PYTHON_RELATIVE_PATH'] = f'lib/python{paths._PYTHON_VER}/site-packages'
-            defines['LLDB_PYTHON_EXE_RELATIVE_PATH'] = f'python3'
-            defines['LLDB_PYTHON_EXT_SUFFIX'] = '.exe'
+
         defines['LLVM_ENABLE_PLUGINS'] = 'ON'
 
         defines['CMAKE_CXX_STANDARD'] = '17'

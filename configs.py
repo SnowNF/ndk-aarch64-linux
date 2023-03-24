@@ -30,7 +30,7 @@ class Config:
 
     name: str
     target_os: hosts.Host
-    target_arch: hosts.Arch = hosts.Arch.X86_64
+    target_arch: hosts.Arch = hosts.Arch.AARCH64
     sysroot: Optional[Path] = None
 
     """Additional config data that a builder can specify."""
@@ -210,7 +210,7 @@ class LinuxConfig(_GccConfig):
     """Configuration for Linux targets."""
 
     target_os: hosts.Host = hosts.Host.Linux
-    sysroot: Optional[Path] = (paths.GCC_ROOT / 'host' / 'x86_64-linux-glibc2.17-4.8' / 'sysroot')
+    sysroot: Optional[Path] = None
     gcc_root: Path = (paths.GCC_ROOT / 'host' / 'x86_64-linux-glibc2.17-4.8')
     gcc_triple: str = 'x86_64-linux'
     gcc_ver: str = '4.8.3'
@@ -219,7 +219,7 @@ class LinuxConfig(_GccConfig):
 
     @property
     def llvm_triple(self) -> str:
-        return 'i386-unknown-linux-gnu' if self.is_32_bit else 'x86_64-unknown-linux-gnu'
+        return 'i386-unknown-linux-gnu' if self.is_32_bit else 'arm64-unknown-linux-gnu'
 
     @property
     def cflagsS(self) -> List[str]:

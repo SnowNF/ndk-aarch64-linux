@@ -46,12 +46,12 @@ BIONIC_HEADERS: Path = ANDROID_DIR / 'bionic' / 'libc' / 'include'
 BIONIC_KERNEL_HEADERS: Path = ANDROID_DIR / 'bionic' / 'libc' / 'kernel' / 'uapi'
 
 GO_BIN_PATH: Path = PREBUILTS_DIR / 'go' / hosts.build_host().os_tag / 'bin'
-CMAKE_BIN_PATH: Path = PREBUILTS_DIR / 'cmake' / hosts.build_host().os_tag / 'bin' / 'cmake'
+CMAKE_BIN_PATH: Path = Path('/bin/cmake')
 BUILD_TOOLS_DIR: Path = PREBUILTS_DIR / 'build-tools'
-MAKE_BIN_PATH: Path = BUILD_TOOLS_DIR / hosts.build_host().os_tag / 'bin' / 'make'
+MAKE_BIN_PATH: Path = Path('/bin/make')
 # Use the musl version of ninja on Linux, it is statically linked and avoids
 # problems with LD_LIBRARY_PATH causing ninja to use the wrong libc++.so.
-NINJA_BIN_PATH: Path = BUILD_TOOLS_DIR / hosts.build_host().os_tag_musl / 'bin' / 'ninja'
+NINJA_BIN_PATH: Path = Path('/bin/ninja')
 
 LIBEDIT_SRC_DIR: Path = EXTERNAL_DIR / 'libedit'
 LIBNCURSES_SRC_DIR: Path = EXTERNAL_DIR / 'libncurses'
@@ -83,8 +83,8 @@ KYTHE_CXX_EXTRACTOR = (PREBUILTS_DIR / 'clang-tools' / hosts.build_host().os_tag
 KYTHE_OUTPUT_DIR = OUT_DIR / 'kythe-files'
 KYTHE_VNAMES_JSON = SCRIPTS_DIR / 'kythe_vnames.json'
 
-_PYTHON_VER = '3.10'
-_PYTHON_VER_SHORT = _PYTHON_VER.replace('.', '')
+_PYTHON_VER = '3'
+_PYTHON_VER_SHORT = '3'
 
 def pgo_profdata_filename() -> str:
     svn_revision = android_version.get_svn_revision_number()

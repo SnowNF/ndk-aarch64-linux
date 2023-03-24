@@ -262,8 +262,6 @@ class AutoconfBuilder(Builder):
         cflags = super().cflags
         cflags.append('-fPIC')
         cflags.append('-Wno-unused-command-line-argument')
-        if self._config.sysroot:
-            cflags.append(f'--sysroot={self._config.sysroot}')
         if self._config.target_os.is_darwin:
             sdk_path = self._get_mac_sdk_path()
             cflags.append(f'-mmacosx-version-min={constants.MAC_MIN_VERSION}')
@@ -275,7 +273,6 @@ class AutoconfBuilder(Builder):
     @property
     def cxxflags(self) -> List[str]:
         cxxflags = super().cxxflags
-        cxxflags.append('-stdlib=libc++')
         return cxxflags
 
     @property
@@ -371,10 +368,6 @@ class CMakeBuilder(Builder):
         cflags = self._config.cflags + self.cflags
         cxxflags = self._config.cxxflags + self.cxxflags
         ldflags = self._config.ldflags + self.ldflags
-        if self._config.sysroot:
-            cflags.append(f'--sysroot={self._config.sysroot}')
-            cxxflags.append(f'--sysroot={self._config.sysroot}')
-            ldflags.append(f'--sysroot={self._config.sysroot}')
         cflags_str = ' '.join(cflags)
         cxxflags_str = ' '.join(cxxflags)
         ldflags_str = ' '.join(ldflags)
@@ -415,8 +408,6 @@ class CMakeBuilder(Builder):
         linker = self._config.get_linker(self.toolchain)
         if linker:
             defines['CMAKE_LINKER'] = str(linker)
-        if self._config.sysroot:
-            defines['CMAKE_SYSROOT'] = str(self._config.sysroot)
         if self._config.target_os == hosts.Host.Android:
             defines['ANDROID'] = '1'
             # Inhibit all of CMake's own NDK handling code.
@@ -528,13 +519,6 @@ class LLVMBaseBuilder(CMakeBuilder):  # pylint: disable=abstract-method
         # Building llvm with tests needs python >= 3.6, which may not be available on build server.
         # So always use prebuilts python.
         target = self._config.target_os
-        if target != hosts.Host.Android and target != hosts.Host.Baremetal:
-            defines['Python3_LIBRARY'] = str(paths.get_python_lib(target))
-            defines['Python3_LIBRARIES'] = str(paths.get_python_lib(target))
-            defines['Python3_INCLUDE_DIR'] = str(paths.get_python_include_dir(target))
-            defines['Python3_INCLUDE_DIRS'] = str(paths.get_python_include_dir(target))
-        defines['Python3_EXECUTABLE'] = str(paths.get_python_executable(hosts.build_host()))
-
         return defines
 
 
@@ -644,17 +628,7 @@ class LLVMBuilder(LLVMBaseBuilder):
         else:
             defines['LLDB_ENABLE_LIBXML2'] = 'OFF'
 
-        if self.libncurses:
-            defines['LLDB_ENABLE_CURSES'] = 'ON'
-            defines['CURSES_INCLUDE_DIRS'] = ';'.join([
-                str(self.libncurses.include_dir),
-                str(self.libncurses.include_dir / 'ncurses'),
-            ])
-            curses_libs = ';'.join(str(lib) for lib in self.libncurses.link_libraries)
-            defines['CURSES_LIBRARIES'] = curses_libs
-            defines['PANEL_LIBRARIES'] = curses_libs
-        else:
-            defines['LLDB_ENABLE_CURSES'] = 'OFF'
+        defines['LLDB_ENABLE_CURSES'] = 'ON'
 
         if self.libzstd:
             defines['LLVM_ENABLE_ZSTD'] = 'FORCE_ON'
@@ -685,13 +659,6 @@ class LLVMBuilder(LLVMBaseBuilder):
             shutil.copy2(self._config.sysroot / 'lib' / 'libc_musl.so', lib_dir / 'libc_musl.so')
 
     def _setup_install_dir(self) -> None:
-        if self.swig_executable:
-            python_prebuilt_dir = paths.get_python_dir(self._config.target_os)
-            python_dest_dir = self.install_dir / 'python3'
-            shutil.copytree(python_prebuilt_dir, python_dest_dir, symlinks=True, dirs_exist_ok=True,
-                            ignore=shutil.ignore_patterns('*.pyc', '__pycache__', 'Android.bp',
-                                                          '.git', '.gitignore'))
-
         lib_dir = self.install_dir / ('bin' if self._config.target_os.is_windows else 'lib')
         lib_dir.mkdir(exist_ok=True, parents=True)
         self._install_lib_deps(lib_dir)
@@ -799,9 +766,6 @@ class LLVMBuilder(LLVMBaseBuilder):
                 cflags = _config.cflags + self.cflags
                 cxxflags = _config.cxxflags + self.cxxflags
                 ldflags = _config.ldflags + self.ldflags
-
-                if _config.sysroot:
-                    cflags.append(f'--sysroot={_config.sysroot}')
 
                 cflags_str = ' '.join(cflags)
                 cxxflags_str = ' '.join(cxxflags)

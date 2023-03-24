@@ -116,7 +116,7 @@ class Toolchain:
     @property
     def lib_dirs(self) -> List[Path]:
         """Returns the paths to lib dirs."""
-        return [self.path / 'lib', self.path / 'lib' / 'x86_64-unknown-linux-gnu', self.path / 'lib' / 'x86_64-unknown-linux-musl']
+        return [self.path / 'lib', self.path / 'lib' / 'aarch64-linux-gnu', self.path / 'lib' / 'x86_64-unknown-linux-musl']
 
     @property
     def _version_file(self) -> Path:
@@ -136,10 +136,10 @@ class Toolchain:
 
     @property
     def libcxx_headers(self) -> Path:
-        return self.path / 'include' / 'c++' / 'v1'
+        return self.path / 'include' / 'c++' / '12'
 
 
 def get_prebuilt_toolchain() -> Toolchain:
     """Returns the prebuilt toolchain."""
     # Prebuilt toolchain doesn't have a build path. Use a temp path instead.
-    return Toolchain(paths.CLANG_PREBUILT_DIR, Path('.'))
+    return Toolchain(Path('/usr'), Path('.'))

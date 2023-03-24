@@ -183,12 +183,12 @@ def setup_sources(llvm_rev=None, skip_apply_patches=False):
         # $DST/BASENAME($SRC) instead of $DST.
         tmp_source_dir_str = str(tmp_source_dir) + '/'
 
-        # rsync to update only changed files.  Use '-c' to use checksums to find
-        # if files have changed instead of only modification time and size -
-        # which could have inconsistencies.  Use '--delete' to ensure files not
-        # in tmp_source_dir are deleted from $source_dir.
-        subprocess.check_call(['rsync', '-r', '--delete', '--links', '-c',
-                               tmp_source_dir_str, source_dir])
+        # # rsync to update only changed files.  Use '-c' to use checksums to find
+        # # if files have changed instead of only modification time and size -
+        # # which could have inconsistencies.  Use '--delete' to ensure files not
+        # # in tmp_source_dir are deleted from $source_dir.
+        # subprocess.check_call(['rsync', '-r', '--delete', '--links', '-c',
+        #                        tmp_source_dir_str, source_dir])
 
         shutil.rmtree(tmp_source_dir)
     remote, url = try_set_git_remote(source_dir)
