@@ -1,3 +1,93 @@
+Ndk for aarch64 linux
+============================
+
+a modified python script to build ndk for aarch64-linux-gnu 
+with system library
+
+>This project is still in develop,
+building steps may occur unexpected errors.
+
+Usage and Build
+------------------
+### Step 0: Prepare two empy dir.
+````sh
+ export llvm-toolchain=path/to/empty_a
+ export aarch64ndk=path/to/empty_b
+````
+
+### Step 1: Download source code
+1. Download ndk source code.
+````sh
+ cd ${llvm-toolchain} 
+ repo init -u https://android.googlesource.com/platform/manifest -b llvm-toolchain
+ repo sync -c
+````
+2. Clone this repository.
+````sh
+ cd ${aarch64ndk}
+ git clone https://github.com/SnowNF/ndk-aarch64-linux
+````
+### Step 2: Replace source code
+````sh
+ cd ${llvm-toolchain}/toolchain/llvm_android
+ mv patches ../patches #backup patches.
+ rm -rf *
+ cp -rf ${aarch64ndk}/ndk-aarch64-linux/* . #replace this repository's code
+ mv ../patchss patches #restore patches
+````
+### Step 3: Try to build
+>To build the core clang binary,
+you need to install essential packages and try several times.
+>>for Debian based
+>>````sh
+>> sudo apt install clang bison llvm llvm-dev python3 lld ninja-build cmake crossbuild-essential-arm64
+>>````
+try to build
+````sh
+ cd ${llvm-toolchain} 
+ python3 toolchain/llvm_android/build.py --no-build windows --skip-tests --single-stage --no-musl
+````
+>To not always copy llvm source,you can try
+>````sh
+> cd ${llvm-toolchain} 
+> python3 toolchain/llvm_android/build.py --no-build windows --skip-tests --single-stage --no-musl --skip-source-setup 
+>````
+
+if building end with
+````
+/usr/include/limits.h:26:10: fatal error: 'bits/libc-header-start.h' file not found
+#include <bits/libc-header-start.h>
+         ^~~~~~~~~~~~~~~~~~~~~~~~~~
+1 error generated.
+````
+This is mean that the clang core binary are built.
+
+### Step 4: Replace android-ndk-rXX-linux binary files
+```sh
+ export NDK=/path/to/amd64/linux/ndk
+ cp -fr ${llvm-toolchain}/out/stage2/bin/clang* ${NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/
+ cp -fr ${llvm-toolchain}/out/stage2/lib/llvm-* ${NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/
+ cp -fr ${llvm-toolchain}/out/stage2/lib/lld* ${NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/
+ cp -fr ${llvm-toolchain}/out/stage2/lib/clang ${NDK}/toolchains/llvm/prebuilt/linux-x86_64/lib/
+ cp -fr /usr/bin/make ${NDK}/prebuilt/linux-x86_64/bin/
+ cp -fr /usr/bin/yasm ${NDK}/prebuilt/linux-x86_64/bin/
+ cp -fr /usr/bin/ytasm ${NDK}/prebuilt/linux-x86_64/bin/
+```
+### Step 5: Test and enjoy
+```shell
+ $ ./aarch64-linux-android33-clang test.c
+ $ file ./a.out
+ ./a.out: ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /system/bin/linker64, not stripped
+```
+
+#
+#
+#
+#
+#
+# The Original Android ReadMe
+
+
 Android Clang/LLVM Toolchain
 ============================
 
