@@ -1,0 +1,280 @@
+From 6c9f6812523a706c11a12e6cb4119b0cf67bbb21 Mon Sep 17 00:00:00 2001
+From: Jez Ng <jezng@fb.com>
+Date: Sun, 31 Jul 2022 20:16:08 -0400
+Subject: [PATCH] [lld-macho] Support EH frame pointer encodings that use
+ sdata4
+
+Previously we only supporting using the system pointer size (aka the
+`absptr` encoding) because `llvm-mc`'s CFI directives always generate EH
+frames with that encoding. But libffi uses 4-byte-encoded, hand-rolled
+EH frames, so this patch adds support for it.
+
+Fixes #56576.
+
+Reviewed By: #lld-macho, oontvoo
+
+Differential Revision: https://reviews.llvm.org/D130804
+---
+ lld/MachO/EhFrame.cpp            | 10 ++--
+ lld/MachO/EhFrame.h              |  8 ++--
+ lld/MachO/InputFiles.cpp         | 44 ++++++++++++------
+ lld/test/MachO/eh-frame-sdata4.s | 80 ++++++++++++++++++++++++++++++++
+ 4 files changed, 117 insertions(+), 25 deletions(-)
+ create mode 100644 lld/test/MachO/eh-frame-sdata4.s
+
+diff --git a/lld/MachO/EhFrame.cpp b/lld/MachO/EhFrame.cpp
+index 50d8accc0596..55a85f316cdd 100644
+--- a/lld/MachO/EhFrame.cpp
++++ b/lld/MachO/EhFrame.cpp
+@@ -58,17 +58,17 @@ uint32_t EhReader::readU32(size_t *off) const {
+   return v;
+ }
+ 
+-uint64_t EhReader::readPointer(size_t *off) const {
+-  if (*off + wordSize > data.size())
++uint64_t EhReader::readPointer(size_t *off, uint8_t size) const {
++  if (*off + size > data.size())
+     failOn(*off, "unexpected end of CIE/FDE");
+   uint64_t v;
+-  if (wordSize == 8)
++  if (size == 8)
+     v = read64le(data.data() + *off);
+   else {
+-    assert(wordSize == 4);
++    assert(size == 4);
+     v = read32le(data.data() + *off);
+   }
+-  *off += wordSize;
++  *off += size;
+   return v;
+ }
+ 
+diff --git a/lld/MachO/EhFrame.h b/lld/MachO/EhFrame.h
+index c8269b941bcf..609a3bb8b1fe 100644
+--- a/lld/MachO/EhFrame.h
++++ b/lld/MachO/EhFrame.h
+@@ -55,9 +55,8 @@ namespace macho {
+ 
+ class EhReader {
+ public:
+-  EhReader(const ObjFile *file, ArrayRef<uint8_t> data, size_t dataOff,
+-           size_t wordSize)
+-      : file(file), data(data), dataOff(dataOff), wordSize(wordSize) {}
++  EhReader(const ObjFile *file, ArrayRef<uint8_t> data, size_t dataOff)
++      : file(file), data(data), dataOff(dataOff) {}
+   size_t size() const { return data.size(); }
+   // Read and validate the length field.
+   uint64_t readLength(size_t *off) const;
+@@ -65,7 +64,7 @@ public:
+   void skipValidLength(size_t *off) const;
+   uint8_t readByte(size_t *off) const;
+   uint32_t readU32(size_t *off) const;
+-  uint64_t readPointer(size_t *off) const;
++  uint64_t readPointer(size_t *off, uint8_t size) const;
+   StringRef readString(size_t *off) const;
+   void skipLeb128(size_t *off) const;
+   void failOn(size_t errOff, const Twine &msg) const;
+@@ -76,7 +75,6 @@ private:
+   // The offset of the data array within its section. Used only for error
+   // reporting.
+   const size_t dataOff;
+-  size_t wordSize;
+ };
+ 
+ // The EH frame format, when emitted by llvm-mc, consists of a number of
+diff --git a/lld/MachO/InputFiles.cpp b/lld/MachO/InputFiles.cpp
+index 5bd15d6baac8..8a414691ea6c 100644
+--- a/lld/MachO/InputFiles.cpp
++++ b/lld/MachO/InputFiles.cpp
+@@ -385,7 +385,7 @@ void ObjFile::parseSections(ArrayRef<SectionHeader> sectionHeaders) {
+ }
+ 
+ void ObjFile::splitEhFrames(ArrayRef<uint8_t> data, Section &ehFrameSection) {
+-  EhReader reader(this, data, /*dataOff=*/0, target->wordSize);
++  EhReader reader(this, data, /*dataOff=*/0);
+   size_t off = 0;
+   while (off < reader.size()) {
+     uint64_t frameOff = off;
+@@ -1293,10 +1293,25 @@ void ObjFile::registerCompactUnwind(Section &compactUnwindSection) {
+ 
+ struct CIE {
+   macho::Symbol *personalitySymbol = nullptr;
+-  bool fdesHaveLsda = false;
+   bool fdesHaveAug = false;
++  uint8_t lsdaPtrSize = 0; // 0 => no LSDA
++  uint8_t funcPtrSize = 0;
+ };
+ 
++static uint8_t pointerEncodingToSize(uint8_t enc) {
++  switch (enc & 0xf) {
++  case dwarf::DW_EH_PE_absptr:
++    return target->wordSize;
++  case dwarf::DW_EH_PE_sdata4:
++    return 4;
++  case dwarf::DW_EH_PE_sdata8:
++    // ld64 doesn't actually support sdata8, but this seems simple enough...
++    return 8;
++  default:
++    return 0;
++  };
++}
++
+ static CIE parseCIE(const InputSection *isec, const EhReader &reader,
+                     size_t off) {
+   // Handling the full generality of possible DWARF encodings would be a major
+@@ -1304,8 +1319,6 @@ static CIE parseCIE(const InputSection *isec, const EhReader &reader,
+   // DWARF and handle just that.
+   constexpr uint8_t expectedPersonalityEnc =
+       dwarf::DW_EH_PE_pcrel | dwarf::DW_EH_PE_indirect | dwarf::DW_EH_PE_sdata4;
+-  constexpr uint8_t expectedPointerEnc =
+-      dwarf::DW_EH_PE_pcrel | dwarf::DW_EH_PE_absptr;
+ 
+   CIE cie;
+   uint8_t version = reader.readByte(&off);
+@@ -1332,16 +1345,17 @@ static CIE parseCIE(const InputSection *isec, const EhReader &reader,
+       break;
+     }
+     case 'L': {
+-      cie.fdesHaveLsda = true;
+       uint8_t lsdaEnc = reader.readByte(&off);
+-      if (lsdaEnc != expectedPointerEnc)
++      cie.lsdaPtrSize = pointerEncodingToSize(lsdaEnc);
++      if (cie.lsdaPtrSize == 0)
+         reader.failOn(off, "unexpected LSDA encoding 0x" +
+                                Twine::utohexstr(lsdaEnc));
+       break;
+     }
+     case 'R': {
+       uint8_t pointerEnc = reader.readByte(&off);
+-      if (pointerEnc != expectedPointerEnc)
++      cie.funcPtrSize = pointerEncodingToSize(pointerEnc);
++      if (cie.funcPtrSize == 0 || !(pointerEnc & dwarf::DW_EH_PE_pcrel))
+         reader.failOn(off, "unexpected pointer encoding 0x" +
+                                Twine::utohexstr(pointerEnc));
+       break;
+@@ -1471,7 +1485,7 @@ void ObjFile::registerEhFrames(Section &ehFrameSection) {
+     else if (isec->symbols[0]->value != 0)
+       fatal("found symbol at unexpected offset in __eh_frame");
+ 
+-    EhReader reader(this, isec->data, subsec.offset, target->wordSize);
++    EhReader reader(this, isec->data, subsec.offset);
+     size_t dataOff = 0; // Offset from the start of the EH frame.
+     reader.skipValidLength(&dataOff); // readLength() already validated this.
+     // cieOffOff is the offset from the start of the EH frame to the cieOff
+@@ -1510,20 +1524,20 @@ void ObjFile::registerEhFrames(Section &ehFrameSection) {
+       continue;
+     }
+ 
++    assert(cieMap.count(cieIsec));
++    const CIE &cie = cieMap[cieIsec];
+     // Offset of the function address within the EH frame.
+     const size_t funcAddrOff = dataOff;
+-    uint64_t funcAddr = reader.readPointer(&dataOff) + ehFrameSection.addr +
+-                        isecOff + funcAddrOff;
+-    uint32_t funcLength = reader.readPointer(&dataOff);
++    uint64_t funcAddr = reader.readPointer(&dataOff, cie.funcPtrSize) +
++                        ehFrameSection.addr + isecOff + funcAddrOff;
++    uint32_t funcLength = reader.readPointer(&dataOff, cie.funcPtrSize);
+     size_t lsdaAddrOff = 0; // Offset of the LSDA address within the EH frame.
+-    assert(cieMap.count(cieIsec));
+-    const CIE &cie = cieMap[cieIsec];
+     Optional<uint64_t> lsdaAddrOpt;
+     if (cie.fdesHaveAug) {
+       reader.skipLeb128(&dataOff);
+       lsdaAddrOff = dataOff;
+-      if (cie.fdesHaveLsda) {
+-        uint64_t lsdaOff = reader.readPointer(&dataOff);
++      if (cie.lsdaPtrSize != 0) {
++        uint64_t lsdaOff = reader.readPointer(&dataOff, cie.lsdaPtrSize);
+         if (lsdaOff != 0) // FIXME possible to test this?
+           lsdaAddrOpt = ehFrameSection.addr + isecOff + lsdaAddrOff + lsdaOff;
+       }
+diff --git a/lld/test/MachO/eh-frame-sdata4.s b/lld/test/MachO/eh-frame-sdata4.s
+new file mode 100644
+index 000000000000..20eb6cfd6e0e
+--- /dev/null
++++ b/lld/test/MachO/eh-frame-sdata4.s
+@@ -0,0 +1,80 @@
++# REQUIRES: x86
++# RUN: rm -rf %t; split-file %s %t
++
++## Test that we correctly handle the sdata4 DWARF pointer encoding. llvm-mc's
++## CFI directives always generate EH frames using the absptr (i.e. system
++## pointer size) encoding, but it is possible to hand-roll your own EH frames
++## that use the sdata4 encoding. For instance, libffi does this.
++
++# RUN: llvm-mc -filetype=obj -triple=x86_64-apple-macos10.15 %t/sdata4.s -o %t/sdata4.o
++# RUN: %lld -lSystem %t/sdata4.o -o %t/sdata4
++# RUN: llvm-objdump --macho --syms --dwarf=frames %t/sdata4 | FileCheck %s
++
++# CHECK: SYMBOL TABLE:
++# CHECK: [[#%.16x,MAIN:]] g     F __TEXT,__text _main
++
++# CHECK: .eh_frame contents:
++# CHECK: 00000000 00000010 00000000 CIE
++# CHECK:   Format:                DWARF32
++# CHECK:   Version:               1
++# CHECK:   Augmentation:          "zR"
++# CHECK:   Code alignment factor: 1
++# CHECK:   Data alignment factor: 1
++# CHECK:   Return address column: 1
++# CHECK:   Augmentation data:     1B
++# CHECK:   DW_CFA_def_cfa: reg7 +8
++# CHECK:   CFA=reg7+8
++
++# CHECK: 00000014 00000010 00000018 FDE cie=00000000 pc=[[#%x,MAIN]]...[[#%x,MAIN+1]]
++# CHECK:   Format:       DWARF32
++# CHECK:   DW_CFA_GNU_args_size: +16
++# CHECK:   DW_CFA_nop:
++# CHECK:   0x[[#%x,MAIN]]: CFA=reg7+8
++
++#--- sdata4.s
++.globl  _main
++_main:
++  retq
++LmainEnd:
++
++.balign 4
++.section __TEXT,__eh_frame
++# Although we don't reference this EhFrame symbol directly, we must have at
++# least one non-local symbol in this section, otherwise llvm-mc generates bogus
++# subtractor relocations.
++EhFrame:
++LCieHdr:
++  .long LCieEnd - LCieStart
++LCieStart:
++  .long 0           # CIE ID
++  .byte 1           # CIE version
++  .ascii "zR\0"
++  .byte 1           # Code alignment
++  .byte 1           # Data alignment
++  .byte 1           # RA column
++  .byte 1           # Augmentation size
++  .byte 0x1b        # FDE pointer encoding (pcrel | sdata4)
++  .byte 0xc, 7, 8   # DW_CFA_def_cfa reg7 +8
++  .balign 4
++LCieEnd:
++
++LFdeHdr:
++  .long LFdeEnd - LFdeStart
++LFdeStart:
++  .long LFdeStart - LCieHdr
++  # The next two fields are longs instead of quads because of the sdata4
++  # encoding.
++  .long _main - .        # Function address
++  .long LmainEnd - _main # Function length
++  .byte 0
++  ## Insert DW_CFA_GNU_args_size to prevent ld64 from creating a compact unwind
++  ## entry to replace this FDE. Makes it easier for us to cross-check behavior
++  ## across the two linkers (LLD never bothers trying to synthesize compact
++  ## unwind if it is not already present).
++  .byte 0x2e, 0x10       # DW_CFA_GNU_args_size
++  .balign 4
++LFdeEnd:
++
++  .long 0 # terminator
++
++.subsections_via_symbols 
+-- 
+2.37.3.998.g577e59143f-goog
+

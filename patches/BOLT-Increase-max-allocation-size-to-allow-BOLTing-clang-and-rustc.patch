@@ -1,0 +1,27 @@
+From 28972d5fb13a36b9258b48244ed61ec91778e069 Mon Sep 17 00:00:00 2001
+From: Yi Kong <yikong@google.com>
+Date: Fri, 3 Jun 2022 02:06:19 +0800
+Subject: [PATCH] [BOLT] Increase max allocation size to allow BOLTing clang and
+ rustc
+
+Change-Id: I41536aee5c5a08f584a65b9278bca03636d10cdf
+---
+ bolt/runtime/instr.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/bolt/runtime/instr.cpp b/bolt/runtime/instr.cpp
+index d111599e3b7..2786ec3cbd5 100644
+--- a/bolt/runtime/instr.cpp
++++ b/bolt/runtime/instr.cpp
+@@ -206,7 +206,7 @@ public:
+ 
+ private:
+   static constexpr uint64_t Magic = 0x1122334455667788ull;
+-  uint64_t MaxSize = 0xa00000;
++  uint64_t MaxSize = 0xd00000;
+   uint8_t *StackBase{nullptr};
+   uint64_t StackSize{0};
+   bool Shared{false};
+-- 
+2.36.1.255.ge46751e96f-goog
+

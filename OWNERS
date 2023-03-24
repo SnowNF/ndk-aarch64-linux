@@ -1,0 +1,10 @@
+# This owners list is included by OWNERS in:
+# ../clang ../clang-tools-extra ../compiler-rt ../libcxx
+# ../libcxxabi ../lld ../llvm ../openmp_llvm
+appujee@google.com
+chh@google.com
+ndesaulniers@google.com
+pirama@google.com
+srhines@google.com
+yabinc@google.com
+yikong@google.com

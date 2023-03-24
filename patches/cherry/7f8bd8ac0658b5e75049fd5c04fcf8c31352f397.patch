@@ -1,0 +1,48 @@
+commit 7f8bd8ac0658b5e75049fd5c04fcf8c31352f397
+Author: Roy Sundahl <rsundahl@apple.com>
+Date:   Thu Dec 15 11:31:44 2022 -0800
+
+    Revert "[Driver] Remove Joined -X"
+    
+    This change is breaking internal builds. We use the -Xfoo pattern but can
+    now no longer manage whether we allow an unused -Xfoo option to pass as a
+    warning or promote it to an error.
+    
+    This reverts commit 98615fd376cea15af21e120e0e3ffa5ba68c2b6d.
+    
+    Reviewed By: davide
+    
+    Differential Revision: https://reviews.llvm.org/D139717
+
+diff --git a/clang/include/clang/Driver/Options.td b/clang/include/clang/Driver/Options.td
+index 312a2d1df1db..f1fd45d8394a 100644
+--- a/clang/include/clang/Driver/Options.td
++++ b/clang/include/clang/Driver/Options.td
+@@ -846,6 +846,7 @@ def Xoffload_linker : JoinedAndSeparate<["-"], "Xoffload-linker">,
+ def Xpreprocessor : Separate<["-"], "Xpreprocessor">, Group<Preprocessor_Group>,
+   HelpText<"Pass <arg> to the preprocessor">, MetaVarName<"<arg>">;
+ def X_Flag : Flag<["-"], "X">, Group<Link_Group>;
++def X_Joined : Joined<["-"], "X">, IgnoredGCCCompat;
+ def Z_Flag : Flag<["-"], "Z">, Group<Link_Group>;
+ def all__load : Flag<["-"], "all_load">;
+ def allowable__client : Separate<["-"], "allowable_client">;
+diff --git a/clang/test/Misc/warn-not-error-Xfoo.c b/clang/test/Misc/warn-not-error-Xfoo.c
+new file mode 100644
+index 000000000000..49a594d4c2f2
+--- /dev/null
++++ b/clang/test/Misc/warn-not-error-Xfoo.c
+@@ -0,0 +1,14 @@
++// RUN: %clang -c -Xfoo %s 2>&1 | FileCheck --check-prefix=CHECK_STANDALONE_FOO %s
++// RUN: %clang -c -Xfoo=bar %s 2>&1 | FileCheck --check-prefix=CHECK_JOINED_FOO %s
++
++// This test ensures that we only warn on -X<unknown> and -X<unknown=value>
++// in case it is used downstream. If we error, we can't ignore it and some
++// use of these (ignored) flags are in legacy use.
++// TODO: Deprecate with timebox warning so consumers can respond.
++
++// CHECK_STANDALONE_FOO: warning: argument unused during compilation: '-Xfoo' [-Wunused-command-line-argument]
++// CHECK_JOINED_FOO: warning: argument unused during compilation: '-Xfoo=bar' [-Wunused-command-line-argument]
++
++// CHECK-NOT: clang{.*}: error: unknown argument:
++
++void f(void) {}

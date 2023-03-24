@@ -1,0 +1,30 @@
+From 9b056b068ba33d87796de43664893160a57b6033 Mon Sep 17 00:00:00 2001
+From: Chih-Hung Hsieh <chh@google.com>
+Date: Wed, 27 Jan 2021 15:19:49 -0800
+Subject: [PATCH] undef FS macro for Android x86_64
+
+* ANDROID x86_64 defined the FS macro,
+  and some LLVM files have the FS variable.
+
+Change-Id: I8d815ce03a6403e17ae7b310a9fb0800a57fd218
+---
+ llvm/include/llvm/Support/VirtualFileSystem.h | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/llvm/include/llvm/Support/VirtualFileSystem.h b/llvm/include/llvm/Support/VirtualFileSystem.h
+index 714bd7ed3050..ba77ccf3e8b2 100644
+--- a/llvm/include/llvm/Support/VirtualFileSystem.h
++++ b/llvm/include/llvm/Support/VirtualFileSystem.h
+@@ -34,6 +34,9 @@
+ #include <utility>
+ #include <vector>
+ 
++// ANDROID x86_64 defined the FS macro
++#undef FS
++
+ namespace llvm {
+ 
+ class MemoryBuffer;
+-- 
+2.30.0.280.ga3ce27912f-goog
+

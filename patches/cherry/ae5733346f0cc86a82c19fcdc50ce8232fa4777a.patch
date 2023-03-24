@@ -1,0 +1,89 @@
+From 00ff3f8c3dd9654b1a74eb64c64803269cdffb43 Mon Sep 17 00:00:00 2001
+From: Arthur Eubanks <aeubanks@google.com>
+Date: Thu, 6 Oct 2022 10:29:46 -0700
+Subject: [PATCH] Revert "[DSE] Eliminate noop store even through has
+ clobbering between LoadI and StoreI"
+
+This reverts commit cd8f3e75813995c1d2da35370ffcf5af3aff9c2f.
+
+Causes miscompiles, see D132657
+
+Change-Id: Iee96aff85f577a0837e8368cfb93f4af89e47711
+---
+ .../Transforms/Scalar/DeadStoreElimination.cpp  | 17 +----------------
+ .../DeadStoreElimination/noop-stores.ll         |  3 +++
+ .../stores-of-existing-values.ll                |  1 +
+ 3 files changed, 5 insertions(+), 16 deletions(-)
+
+diff --git a/llvm/lib/Transforms/Scalar/DeadStoreElimination.cpp b/llvm/lib/Transforms/Scalar/DeadStoreElimination.cpp
+index 2f9988bfe8a4..1ed52cce8c20 100644
+--- a/llvm/lib/Transforms/Scalar/DeadStoreElimination.cpp
++++ b/llvm/lib/Transforms/Scalar/DeadStoreElimination.cpp
+@@ -1875,23 +1875,8 @@ struct DSEState {
+           // We are searching for the definition of the store's destination.
+           // So, if that is the same definition as the load, then this is a
+           // noop. Otherwise, fail.
+-          if (LoadAccess != Current) {
+-            // This is a potentially clobbering store, but it writes the same
+-            // value, so we can safely ignore it if alignment is as expected.
+-            if (auto *CurrentDef = cast<MemoryDef>(Current))
+-              if (auto *CurrentStoreI =
+-                      dyn_cast_or_null<StoreInst>(CurrentDef->getMemoryInst()))
+-                // Check alignment to ensure load or store does not access at an
+-                // offset.
+-                if (CurrentStoreI->getValueOperand() == LoadI) {
+-                  TypeSize StoreSize = DL.getTypeStoreSize(LoadI->getType());
+-                  if (!StoreSize.isScalable() &&
+-                      std::min(CurrentStoreI->getAlign(), LoadI->getAlign()) >=
+-                          StoreSize)
+-                    continue;
+-                }
++          if (LoadAccess != Current)
+             return false;
+-          }
+         }
+         return true;
+       }
+diff --git a/llvm/test/Transforms/DeadStoreElimination/noop-stores.ll b/llvm/test/Transforms/DeadStoreElimination/noop-stores.ll
+index 075e49ac23d5..8971786e4cd2 100644
+--- a/llvm/test/Transforms/DeadStoreElimination/noop-stores.ll
++++ b/llvm/test/Transforms/DeadStoreElimination/noop-stores.ll
+@@ -678,6 +678,7 @@ define void @store_same_i32_to_mayalias_loc(i32* %q, i32* %p) {
+ ; CHECK-LABEL: @store_same_i32_to_mayalias_loc(
+ ; CHECK-NEXT:    [[V:%.*]] = load i32, i32* [[P:%.*]], align 4
+ ; CHECK-NEXT:    store i32 [[V]], i32* [[Q:%.*]], align 4
++; CHECK-NEXT:    store i32 [[V]], i32* [[P]], align 4
+ ; CHECK-NEXT:    ret void
+ ;
+   %v = load i32, i32* %p, align 4
+@@ -703,6 +704,7 @@ define void @store_same_i12_to_mayalias_loc(i12* %q, i12* %p) {
+ ; CHECK-LABEL: @store_same_i12_to_mayalias_loc(
+ ; CHECK-NEXT:    [[V:%.*]] = load i12, i12* [[P:%.*]], align 2
+ ; CHECK-NEXT:    store i12 [[V]], i12* [[Q:%.*]], align 2
++; CHECK-NEXT:    store i12 [[V]], i12* [[P]], align 2
+ ; CHECK-NEXT:    ret void
+ ;
+   %v = load i12, i12* %p, align 2
+@@ -728,6 +730,7 @@ define void @store_same_ptr_to_mayalias_loc(i32** %q, i32** %p) {
+ ; CHECK-LABEL: @store_same_ptr_to_mayalias_loc(
+ ; CHECK-NEXT:    [[V:%.*]] = load i32*, i32** [[P:%.*]], align 8
+ ; CHECK-NEXT:    store i32* [[V]], i32** [[Q:%.*]], align 8
++; CHECK-NEXT:    store i32* [[V]], i32** [[P]], align 8
+ ; CHECK-NEXT:    ret void
+ ;
+   %v = load i32*, i32** %p, align 8
+diff --git a/llvm/test/Transforms/DeadStoreElimination/stores-of-existing-values.ll b/llvm/test/Transforms/DeadStoreElimination/stores-of-existing-values.ll
+index 06a5f8690c26..5b81d952675f 100644
+--- a/llvm/test/Transforms/DeadStoreElimination/stores-of-existing-values.ll
++++ b/llvm/test/Transforms/DeadStoreElimination/stores-of-existing-values.ll
+@@ -612,6 +612,7 @@ define void @pr49927(i32* %q, i32* %p) {
+ ; CHECK-LABEL: @pr49927(
+ ; CHECK-NEXT:    [[V:%.*]] = load i32, i32* [[P:%.*]], align 4
+ ; CHECK-NEXT:    store i32 [[V]], i32* [[Q:%.*]], align 4
++; CHECK-NEXT:    store i32 [[V]], i32* [[P]], align 4
+ ; CHECK-NEXT:    ret void
+ ;
+   %v = load i32, i32* %p, align 4
+-- 
+2.38.0.413.g74048e4d9e-goog
+

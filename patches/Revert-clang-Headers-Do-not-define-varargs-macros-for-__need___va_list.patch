@@ -1,0 +1,61 @@
+From 42fa58c8c6ec4bf01c15e5a5e8e4e3f10514cab8 Mon Sep 17 00:00:00 2001
+From: Yi Kong <yikong@google.com>
+Date: Wed, 18 Jan 2023 14:56:32 +0900
+Subject: [PATCH] Revert "[clang][Headers] Do not define varargs macros for
+ __need___va_list"
+
+This reverts commit 9e956995db1fc7e792e3dfb3a465a52626195557.
+---
+ clang/lib/Headers/stdarg.h                      | 17 ++++++-----------
+ .../TestCases/Linux/signal_send.cpp             |  1 -
+ 2 files changed, 6 insertions(+), 12 deletions(-)
+
+diff --git a/clang/lib/Headers/stdarg.h b/clang/lib/Headers/stdarg.h
+index ba978721f1f3..c2458bfd7fbb 100644
+--- a/clang/lib/Headers/stdarg.h
++++ b/clang/lib/Headers/stdarg.h
+@@ -8,16 +8,8 @@
+  */
+ 
+ #ifndef __STDARG_H
+-
+-#ifndef __GNUC_VA_LIST
+-#define __GNUC_VA_LIST
+-typedef __builtin_va_list __gnuc_va_list;
+-#endif
+-
+-#ifdef __need___va_list
+-#undef __need___va_list
+-#else
+ #define __STDARG_H
++
+ #ifndef _VA_LIST
+ typedef __builtin_va_list va_list;
+ #define _VA_LIST
+@@ -46,6 +38,9 @@ typedef __builtin_va_list va_list;
+ #define va_copy(dest, src)  __builtin_va_copy(dest, src)
+ #endif
+ 
+-#endif /* __STDARG_H */
++#ifndef __GNUC_VA_LIST
++#define __GNUC_VA_LIST 1
++typedef __builtin_va_list __gnuc_va_list;
++#endif
+ 
+-#endif /* not __STDARG_H */
++#endif /* __STDARG_H */
+diff --git a/compiler-rt/test/sanitizer_common/TestCases/Linux/signal_send.cpp b/compiler-rt/test/sanitizer_common/TestCases/Linux/signal_send.cpp
+index 035a5a8df77a..cb198cf7b68a 100644
+--- a/compiler-rt/test/sanitizer_common/TestCases/Linux/signal_send.cpp
++++ b/compiler-rt/test/sanitizer_common/TestCases/Linux/signal_send.cpp
+@@ -5,7 +5,6 @@
+ 
+ #include <assert.h>
+ #include <signal.h>
+-#include <stdarg.h>
+ #include <stdio.h>
+ #include <sys/time.h>
+ #include <sys/wait.h>
+-- 
+2.39.0.246.g2a6d74b583-goog
+

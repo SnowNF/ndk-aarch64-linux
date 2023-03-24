@@ -1,0 +1,83 @@
+From 81e8e4a75774df541bc65d04369174da0e8caeec Mon Sep 17 00:00:00 2001
+From: Stephen Hines <srhines@google.com>
+Date: Fri, 18 Dec 2020 00:10:27 -0800
+Subject: [PATCH] Ensure that we use our toolchain's lipo, and not the system
+ version
+
+Change-Id: Ib505775e62e10e1821dc4e036daae46f2cff630f
+---
+ clang/CMakeLists.txt                                  | 5 +++++
+ clang/runtime/CMakeLists.txt                          | 1 +
+ compiler-rt/cmake/Modules/AddCompilerRT.cmake         | 1 +
+ compiler-rt/cmake/Modules/CompilerRTDarwinUtils.cmake | 2 +-
+ llvm/cmake/modules/LLVMExternalProjectUtils.cmake     | 1 +
+ 5 files changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/clang/CMakeLists.txt b/clang/CMakeLists.txt
+index 900ef0a4d73..cae5cfe7feb 100644
+--- a/clang/CMakeLists.txt
++++ b/clang/CMakeLists.txt
+@@ -782,6 +782,11 @@ if (CLANG_ENABLE_BOOTSTRAP)
+     set(PGO_OPT -DLLVM_PROFDATA=${LLVM_RUNTIME_OUTPUT_INTDIR}/llvm-profdata)
+   endif()
+ 
++  # Retain lipo configuration as needed
++  if(APPLE)
++    set(CMAKE_LIPO "lipo" CACHE FILEPATH "path to the lipo tool")
++  endif()
++
+   if(LLVM_BUILD_INSTRUMENTED)
+     add_dependencies(clang-bootstrap-deps generate-profdata)
+     set(PGO_OPT -DLLVM_PROFDATA_FILE=${CMAKE_CURRENT_BINARY_DIR}/utils/perf-training/clang.profdata)
+diff --git a/clang/runtime/CMakeLists.txt b/clang/runtime/CMakeLists.txt
+index 61bbbf8faed..9429de3116e 100644
+--- a/clang/runtime/CMakeLists.txt
++++ b/clang/runtime/CMakeLists.txt
+@@ -76,6 +76,7 @@ if(LLVM_BUILD_EXTERNAL_COMPILER_RT AND EXISTS ${COMPILER_RT_SRC_ROOT}/)
+                -DCMAKE_C_COMPILER=${LLVM_RUNTIME_OUTPUT_INTDIR}/clang
+                -DCMAKE_CXX_COMPILER=${LLVM_RUNTIME_OUTPUT_INTDIR}/clang++
+                -DCMAKE_ASM_COMPILER=${LLVM_RUNTIME_OUTPUT_INTDIR}/clang
++               -DCMAKE_LIPO=${LLVM_RUNTIME_OUTPUT_INTDIR}/llvm-lipo
+                -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+                -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+                -DLLVM_CONFIG_PATH=${LLVM_RUNTIME_OUTPUT_INTDIR}/llvm-config
+diff --git a/compiler-rt/cmake/Modules/AddCompilerRT.cmake b/compiler-rt/cmake/Modules/AddCompilerRT.cmake
+index 90a946a0df7..66bd0a5761a 100644
+--- a/compiler-rt/cmake/Modules/AddCompilerRT.cmake
++++ b/compiler-rt/cmake/Modules/AddCompilerRT.cmake
+@@ -610,6 +610,7 @@ macro(add_custom_libcxx name prefix)
+     CMAKE_INSTALL_PREFIX
+     CMAKE_MAKE_PROGRAM
+     CMAKE_LINKER
++    CMAKE_LIPO
+     CMAKE_AR
+     CMAKE_RANLIB
+     CMAKE_NM
+diff --git a/compiler-rt/cmake/Modules/CompilerRTDarwinUtils.cmake b/compiler-rt/cmake/Modules/CompilerRTDarwinUtils.cmake
+index f6689c2e79a..02dc7f3c0fc 100644
+--- a/compiler-rt/cmake/Modules/CompilerRTDarwinUtils.cmake
++++ b/compiler-rt/cmake/Modules/CompilerRTDarwinUtils.cmake
+@@ -2,7 +2,7 @@ include(CMakeParseArguments)
+ include(CompilerRTUtils)
+ include(BuiltinTests)
+ 
+-set(CMAKE_LIPO "lipo" CACHE PATH "path to the lipo tool")
++#set(CMAKE_LIPO "lipo" CACHE PATH "path to the lipo tool")
+ 
+ # On OS X SDKs can be installed anywhere on the base system and xcode-select can
+ # set the default Xcode to use. This function finds the SDKs that are present in
+diff --git a/llvm/cmake/modules/LLVMExternalProjectUtils.cmake b/llvm/cmake/modules/LLVMExternalProjectUtils.cmake
+index 1b4a1f339e2..f68f38407ea 100644
+--- a/llvm/cmake/modules/LLVMExternalProjectUtils.cmake
++++ b/llvm/cmake/modules/LLVMExternalProjectUtils.cmake
+@@ -216,6 +216,7 @@ function(llvm_ExternalProject_Add name source_dir)
+                       -DCMAKE_LINKER=${CMAKE_LINKER}
+                       -DCMAKE_AR=${CMAKE_AR}
+                       -DCMAKE_RANLIB=${CMAKE_RANLIB}
++                      -DCMAKE_LIPO=${CMAKE_LIPO}
+                       -DCMAKE_NM=${CMAKE_NM}
+                       -DCMAKE_OBJCOPY=${CMAKE_OBJCOPY}
+                       -DCMAKE_OBJDUMP=${CMAKE_OBJDUMP}
+-- 
+2.29.2.729.g45daf8777d-goog
+

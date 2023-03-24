@@ -1,0 +1,179 @@
+commit 4a5184f4c357eeafcced3371cd8539fa0ac9f24d
+Author: Timm Bäder <tbaeder@redhat.com>
+Date:   Fri Oct 21 11:36:37 2022 +0200
+
+    [clang][driver] Remove dynamic gcc-toolset/devtoolset logic
+    
+    This breaks when the newest available devtoolset directory is not a
+    complete toolset: https://github.com/llvm/llvm-project/issues/57843
+    
+    Remove this again in favor or just adding the two new directories for
+    devtoolset/gcc-toolset 12.
+    
+    This reverts commit 35aaf548237a4f213ba9d95de53b33c5ce1eadce.
+    This reverts commit 9f97720268911abae2ad9d90e270358db234a1c1.
+    
+    Fixes https://github.com/llvm/llvm-project/issues/57843
+    
+    Differential Revision: https://reviews.llvm.org/D136435
+
+diff --git a/clang/lib/Driver/ToolChains/Gnu.cpp b/clang/lib/Driver/ToolChains/Gnu.cpp
+index 9a172dbd057e..ae0602d0bbf5 100644
+--- a/clang/lib/Driver/ToolChains/Gnu.cpp
++++ b/clang/lib/Driver/ToolChains/Gnu.cpp
+@@ -2162,31 +2162,21 @@ void Generic_GCC::GCCInstallationDetector::AddDefaultGCCPrefixes(
+   // and gcc-toolsets.
+   if (SysRoot.empty() && TargetTriple.getOS() == llvm::Triple::Linux &&
+       D.getVFS().exists("/opt/rh")) {
+-    // Find the directory in /opt/rh/ starting with gcc-toolset-* or
+-    // devtoolset-* with the highest version number and add that
+-    // one to our prefixes.
+-    std::string ChosenToolsetDir;
+-    unsigned ChosenToolsetVersion = 0;
+-    std::error_code EC;
+-    for (llvm::vfs::directory_iterator LI = D.getVFS().dir_begin("/opt/rh", EC),
+-                                       LE;
+-         !EC && LI != LE; LI = LI.increment(EC)) {
+-      StringRef ToolsetDir = llvm::sys::path::filename(LI->path());
+-      unsigned ToolsetVersion;
+-      if ((!ToolsetDir.startswith("gcc-toolset-") &&
+-           !ToolsetDir.startswith("devtoolset-")) ||
+-          ToolsetDir.substr(ToolsetDir.rfind('-') + 1)
+-              .getAsInteger(10, ToolsetVersion))
+-        continue;
+-
+-      if (ToolsetVersion > ChosenToolsetVersion) {
+-        ChosenToolsetVersion = ToolsetVersion;
+-        ChosenToolsetDir = "/opt/rh/" + ToolsetDir.str();
+-      }
+-    }
+-
+-    if (ChosenToolsetVersion > 0)
+-      Prefixes.push_back(ChosenToolsetDir + "/root/usr");
++    // TODO: We may want to remove this, since the functionality
++    //   can be achieved using config files.
++    Prefixes.push_back("/opt/rh/gcc-toolset-12/root/usr");
++    Prefixes.push_back("/opt/rh/gcc-toolset-11/root/usr");
++    Prefixes.push_back("/opt/rh/gcc-toolset-10/root/usr");
++    Prefixes.push_back("/opt/rh/devtoolset-12/root/usr");
++    Prefixes.push_back("/opt/rh/devtoolset-11/root/usr");
++    Prefixes.push_back("/opt/rh/devtoolset-10/root/usr");
++    Prefixes.push_back("/opt/rh/devtoolset-9/root/usr");
++    Prefixes.push_back("/opt/rh/devtoolset-8/root/usr");
++    Prefixes.push_back("/opt/rh/devtoolset-7/root/usr");
++    Prefixes.push_back("/opt/rh/devtoolset-6/root/usr");
++    Prefixes.push_back("/opt/rh/devtoolset-4/root/usr");
++    Prefixes.push_back("/opt/rh/devtoolset-3/root/usr");
++    Prefixes.push_back("/opt/rh/devtoolset-2/root/usr");
+   }
+ 
+   // Fall back to /usr which is used by most non-Solaris systems.
+diff --git a/clang/unittests/Driver/ToolChainTest.cpp b/clang/unittests/Driver/ToolChainTest.cpp
+index a9ac309bdc11..10b20a91aee2 100644
+--- a/clang/unittests/Driver/ToolChainTest.cpp
++++ b/clang/unittests/Driver/ToolChainTest.cpp
+@@ -20,7 +20,6 @@
+ #include "clang/Frontend/CompilerInstance.h"
+ #include "llvm/ADT/ArrayRef.h"
+ #include "llvm/MC/TargetRegistry.h"
+-#include "llvm/Support/Host.h"
+ #include "llvm/Support/TargetSelect.h"
+ #include "llvm/Support/VirtualFileSystem.h"
+ #include "llvm/Support/raw_ostream.h"
+@@ -394,96 +393,6 @@ struct SimpleDiagnosticConsumer : public DiagnosticConsumer {
+   std::vector<SmallString<32>> Errors;
+ };
+ 
+-TEST(ToolChainTest, Toolsets) {
+-  // Ignore this test on Windows hosts.
+-  llvm::Triple Host(llvm::sys::getProcessTriple());
+-  if (Host.isOSWindows())
+-    GTEST_SKIP();
+-
+-  IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts = new DiagnosticOptions();
+-  IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
+-
+-  // Check (newer) GCC toolset installation.
+-  {
+-    IntrusiveRefCntPtr<llvm::vfs::InMemoryFileSystem> InMemoryFileSystem(
+-        new llvm::vfs::InMemoryFileSystem);
+-
+-    // These should be ignored.
+-    InMemoryFileSystem->addFile("/opt/rh/gcc-toolset-2", 0,
+-                                llvm::MemoryBuffer::getMemBuffer("\n"));
+-    InMemoryFileSystem->addFile("/opt/rh/gcc-toolset-", 0,
+-                                llvm::MemoryBuffer::getMemBuffer("\n"));
+-    InMemoryFileSystem->addFile("/opt/rh/gcc-toolset--", 0,
+-                                llvm::MemoryBuffer::getMemBuffer("\n"));
+-    InMemoryFileSystem->addFile("/opt/rh/gcc-toolset--1", 0,
+-                                llvm::MemoryBuffer::getMemBuffer("\n"));
+-
+-    // File needed for GCC installation detection.
+-    InMemoryFileSystem->addFile("/opt/rh/gcc-toolset-12/root/usr/lib/gcc/"
+-                                "x86_64-redhat-linux/11/crtbegin.o",
+-                                0, llvm::MemoryBuffer::getMemBuffer("\n"));
+-
+-    DiagnosticsEngine Diags(DiagID, &*DiagOpts, new SimpleDiagnosticConsumer);
+-    Driver TheDriver("/bin/clang", "x86_64-redhat-linux", Diags,
+-                     "clang LLVM compiler", InMemoryFileSystem);
+-    std::unique_ptr<Compilation> C(
+-        TheDriver.BuildCompilation({"clang", "--gcc-toolchain="}));
+-    ASSERT_TRUE(C);
+-    std::string S;
+-    {
+-      llvm::raw_string_ostream OS(S);
+-      C->getDefaultToolChain().printVerboseInfo(OS);
+-    }
+-    EXPECT_EQ("Found candidate GCC installation: "
+-              "/opt/rh/gcc-toolset-12/root/usr/lib/gcc/x86_64-redhat-linux/11\n"
+-              "Selected GCC installation: "
+-              "/opt/rh/gcc-toolset-12/root/usr/lib/gcc/x86_64-redhat-linux/11\n"
+-              "Candidate multilib: .;@m64\n"
+-              "Selected multilib: .;@m64\n",
+-              S);
+-  }
+-
+-  // And older devtoolset.
+-  {
+-    IntrusiveRefCntPtr<llvm::vfs::InMemoryFileSystem> InMemoryFileSystem(
+-        new llvm::vfs::InMemoryFileSystem);
+-
+-    // These should be ignored.
+-    InMemoryFileSystem->addFile("/opt/rh/devtoolset-2", 0,
+-                                llvm::MemoryBuffer::getMemBuffer("\n"));
+-    InMemoryFileSystem->addFile("/opt/rh/devtoolset-", 0,
+-                                llvm::MemoryBuffer::getMemBuffer("\n"));
+-    InMemoryFileSystem->addFile("/opt/rh/devtoolset--", 0,
+-                                llvm::MemoryBuffer::getMemBuffer("\n"));
+-    InMemoryFileSystem->addFile("/opt/rh/devtoolset--1", 0,
+-                                llvm::MemoryBuffer::getMemBuffer("\n"));
+-
+-    // File needed for GCC installation detection.
+-    InMemoryFileSystem->addFile("/opt/rh/devtoolset-12/root/usr/lib/gcc/"
+-                                "x86_64-redhat-linux/11/crtbegin.o",
+-                                0, llvm::MemoryBuffer::getMemBuffer("\n"));
+-
+-    DiagnosticsEngine Diags(DiagID, &*DiagOpts, new SimpleDiagnosticConsumer);
+-    Driver TheDriver("/bin/clang", "x86_64-redhat-linux", Diags,
+-                     "clang LLVM compiler", InMemoryFileSystem);
+-    std::unique_ptr<Compilation> C(
+-        TheDriver.BuildCompilation({"clang", "--gcc-toolchain="}));
+-    ASSERT_TRUE(C);
+-    std::string S;
+-    {
+-      llvm::raw_string_ostream OS(S);
+-      C->getDefaultToolChain().printVerboseInfo(OS);
+-    }
+-    EXPECT_EQ("Found candidate GCC installation: "
+-              "/opt/rh/devtoolset-12/root/usr/lib/gcc/x86_64-redhat-linux/11\n"
+-              "Selected GCC installation: "
+-              "/opt/rh/devtoolset-12/root/usr/lib/gcc/x86_64-redhat-linux/11\n"
+-              "Candidate multilib: .;@m64\n"
+-              "Selected multilib: .;@m64\n",
+-              S);
+-  }
+-}
+-
+ TEST(ToolChainTest, ConfigFileSearch) {
+   IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts = new DiagnosticOptions();
+   IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());

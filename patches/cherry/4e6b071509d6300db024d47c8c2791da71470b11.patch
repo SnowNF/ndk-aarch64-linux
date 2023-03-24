@@ -1,0 +1,27 @@
+From 4e6b071509d6300db024d47c8c2791da71470b11 Mon Sep 17 00:00:00 2001
+From: Yabin Cui <yabinc@google.com>
+Date: Thu, 13 Oct 2022 15:16:58 -0400
+Subject: [PATCH] Fix clang version check in SARIF diagnostics test
+
+This is to allow future clang versions and use of LLVM_VERSION_PATCH.
+
+Differential Revision: https://reviews.llvm.org/D135896
+---
+ clang/test/Frontend/sarif-diagnostics.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/clang/test/Frontend/sarif-diagnostics.cpp b/clang/test/Frontend/sarif-diagnostics.cpp
+index c7512bd1777f..9e390285b30d 100644
+--- a/clang/test/Frontend/sarif-diagnostics.cpp
++++ b/clang/test/Frontend/sarif-diagnostics.cpp
+@@ -64,5 +64,5 @@ void f1(t1 x, t1 y) {
+ // CHECK: {"enabled":true,"level":"error","rank":50},"fullDescription":{"text":""},"id":"{{[0-9]+}}","name":""},{"defaultConfiguration":
+ // CHECK: {"enabled":true,"level":"error","rank":50},"fullDescription":{"text":""},"id":"{{[0-9]+}}","name":""},{"defaultConfiguration":
+ // CHECK: {"enabled":true,"level":"error","rank":50},"fullDescription":
+-// CHECK: {"text":""},"id":"{{[0-9]+}}","name":""}],"version":"16.0.0"}}}],"version":"2.1.0"}
++// CHECK: {"text":""},"id":"{{[0-9]+}}","name":""}],"version":"{{[0-9]+\.[0-9]+\.[0-9]+}}"}}}],"version":"2.1.0"}
+ // CHECK: 2 warnings and 6 errors generated.
+\ No newline at end of file
+-- 
+2.38.0.413.g74048e4d9e-goog
+

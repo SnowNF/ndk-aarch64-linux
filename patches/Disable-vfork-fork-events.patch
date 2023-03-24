@@ -1,0 +1,31 @@
+From c43d719afbad784f49fc2647211e0f747b4d26aa Mon Sep 17 00:00:00 2001
+From: Emre Kultursay <emrekultursay@google.com>
+Date: Mon, 19 Sep 2022 12:55:03 +0900
+Subject: [PATCH 1/1] Disable vfork events
+
+They cause the debugger to detach.
+
+Bug: 243919451
+Bug: 243434753
+Test: vulkan tutorial02
+Change-Id: I0c3100949dbeec8d47c19b41774a7884e1f7198f
+---
+ .../Process/gdb-remote/GDBRemoteCommunicationClient.cpp        | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/lldb/source/Plugins/Process/gdb-remote/GDBRemoteCommunicationClient.cpp b/lldb/source/Plugins/Process/gdb-remote/GDBRemoteCommunicationClient.cpp
+index 580cdde57d80..73c6a14f9164 100644
+--- a/lldb/source/Plugins/Process/gdb-remote/GDBRemoteCommunicationClient.cpp
++++ b/lldb/source/Plugins/Process/gdb-remote/GDBRemoteCommunicationClient.cpp
+@@ -342,8 +342,7 @@ void GDBRemoteCommunicationClient::GetRemoteQSupported() {
+ 
+   // build the qSupported packet
+   std::vector<std::string> features = {"xmlRegisters=i386,arm,mips,arc",
+-                                       "multiprocess+", "fork-events+",
+-                                       "vfork-events+"};
++                                       "multiprocess+"};
+   StreamString packet;
+   packet.PutCString("qSupported");
+   for (uint32_t i = 0; i < features.size(); ++i) {
+-- 
+2.31.1.windows.1

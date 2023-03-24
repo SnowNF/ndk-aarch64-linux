@@ -1,0 +1,137 @@
+From ac3cb4ecd0c6ed03c135945d27bbe197d80cba4e Mon Sep 17 00:00:00 2001
+From: Anubhab Ghosh <anubhabghosh.me@gmail.com>
+Date: Sat, 30 Jul 2022 06:43:05 +0530
+Subject: [PATCH] [Orc] Disable use of shared memory on Android
+
+shm_open and shm_unlink are not available on Android. This commit
+disables SharedMemoryMapper on Android until a better solution is
+available.
+
+https://android.googlesource.com/platform/bionic/+/refs/heads/master/docs/status.md
+https://github.com/llvm/llvm-project/issues/56812
+
+Differential Revision: https://reviews.llvm.org/D130814
+---
+ .../ExecutorSharedMemoryMapperService.h        |  3 +++
+ llvm/lib/ExecutionEngine/Orc/MemoryMapper.cpp  | 18 ++++++++++++++----
+ .../ExecutorSharedMemoryMapperService.cpp      |  6 +++---
+ .../Orc/SharedMemoryMapperTest.cpp             |  2 +-
+ 4 files changed, 21 insertions(+), 8 deletions(-)
+
+diff --git a/llvm/include/llvm/ExecutionEngine/Orc/TargetProcess/ExecutorSharedMemoryMapperService.h b/llvm/include/llvm/ExecutionEngine/Orc/TargetProcess/ExecutorSharedMemoryMapperService.h
+index 37fe5a98b093..549a6c096510 100644
+--- a/llvm/include/llvm/ExecutionEngine/Orc/TargetProcess/ExecutorSharedMemoryMapperService.h
++++ b/llvm/include/llvm/ExecutionEngine/Orc/TargetProcess/ExecutorSharedMemoryMapperService.h
+@@ -66,7 +66,10 @@ private:
+   static llvm::orc::shared::CWrapperFunctionResult
+   releaseWrapper(const char *ArgData, size_t ArgSize);
+ 
++#if (defined(LLVM_ON_UNIX) && !defined(__ANDROID__)) || defined(_WIN32)
+   std::atomic<int> SharedMemoryCount{0};
++#endif
++
+   std::mutex Mutex;
+   ReservationMap Reservations;
+   AllocationMap Allocations;
+diff --git a/llvm/lib/ExecutionEngine/Orc/MemoryMapper.cpp b/llvm/lib/ExecutionEngine/Orc/MemoryMapper.cpp
+index ca3f64b8a409..fdfdffca0124 100644
+--- a/llvm/lib/ExecutionEngine/Orc/MemoryMapper.cpp
++++ b/llvm/lib/ExecutionEngine/Orc/MemoryMapper.cpp
+@@ -11,7 +11,7 @@
+ #include "llvm/ExecutionEngine/Orc/Shared/OrcRTBridge.h"
+ #include "llvm/Support/WindowsError.h"
+ 
+-#if defined(LLVM_ON_UNIX)
++#if defined(LLVM_ON_UNIX) && !defined(__ANDROID__)
+ #include <fcntl.h>
+ #include <sys/mman.h>
+ #include <unistd.h>
+@@ -173,20 +173,30 @@ InProcessMemoryMapper::~InProcessMemoryMapper() {
+ 
+ SharedMemoryMapper::SharedMemoryMapper(ExecutorProcessControl &EPC,
+                                        SymbolAddrs SAs, size_t PageSize)
+-    : EPC(EPC), SAs(SAs), PageSize(PageSize) {}
++    : EPC(EPC), SAs(SAs), PageSize(PageSize) {
++#if (!defined(LLVM_ON_UNIX) || defined(__ANDROID__)) && !defined(_WIN32)
++  llvm_unreachable("SharedMemoryMapper is not supported on this platform yet");
++#endif
++}
+ 
+ Expected<std::unique_ptr<SharedMemoryMapper>>
+ SharedMemoryMapper::Create(ExecutorProcessControl &EPC, SymbolAddrs SAs) {
++#if (defined(LLVM_ON_UNIX) && !defined(__ANDROID__)) || defined(_WIN32)
+   auto PageSize = sys::Process::getPageSize();
+   if (!PageSize)
+     return PageSize.takeError();
+ 
+   return std::make_unique<SharedMemoryMapper>(EPC, SAs, *PageSize);
++#else
++  return make_error<StringError>(
++      "SharedMemoryMapper is not supported on this platform yet",
++      inconvertibleErrorCode());
++#endif
+ }
+ 
+ void SharedMemoryMapper::reserve(size_t NumBytes,
+                                  OnReservedFunction OnReserved) {
+-#if defined(LLVM_ON_UNIX) || defined(_WIN32)
++#if (defined(LLVM_ON_UNIX) && !defined(__ANDROID__)) || defined(_WIN32)
+ 
+   EPC.callSPSWrapperAsync<
+       rt::SPSExecutorSharedMemoryMapperServiceReserveSignature>(
+@@ -334,7 +344,7 @@ void SharedMemoryMapper::deinitialize(
+ 
+ void SharedMemoryMapper::release(ArrayRef<ExecutorAddr> Bases,
+                                  OnReleasedFunction OnReleased) {
+-#if defined(LLVM_ON_UNIX) || defined(_WIN32)
++#if (defined(LLVM_ON_UNIX) && !defined(__ANDROID__)) || defined(_WIN32)
+   Error Err = Error::success();
+ 
+   {
+diff --git a/llvm/lib/ExecutionEngine/Orc/TargetProcess/ExecutorSharedMemoryMapperService.cpp b/llvm/lib/ExecutionEngine/Orc/TargetProcess/ExecutorSharedMemoryMapperService.cpp
+index 6c9f099061ae..17498a6c09f7 100644
+--- a/llvm/lib/ExecutionEngine/Orc/TargetProcess/ExecutorSharedMemoryMapperService.cpp
++++ b/llvm/lib/ExecutionEngine/Orc/TargetProcess/ExecutorSharedMemoryMapperService.cpp
+@@ -52,7 +52,7 @@ namespace rt_bootstrap {
+ 
+ Expected<std::pair<ExecutorAddr, std::string>>
+ ExecutorSharedMemoryMapperService::reserve(uint64_t Size) {
+-#if defined(LLVM_ON_UNIX) || defined(_WIN32)
++#if (defined(LLVM_ON_UNIX) && !defined(__ANDROID__)) || defined(_WIN32)
+ 
+ #if defined(LLVM_ON_UNIX)
+ 
+@@ -125,7 +125,7 @@ ExecutorSharedMemoryMapperService::reserve(uint64_t Size) {
+ 
+ Expected<ExecutorAddr> ExecutorSharedMemoryMapperService::initialize(
+     ExecutorAddr Reservation, tpctypes::SharedMemoryFinalizeRequest &FR) {
+-#if defined(LLVM_ON_UNIX) || defined(_WIN32)
++#if (defined(LLVM_ON_UNIX) && !defined(__ANDROID__)) || defined(_WIN32)
+ 
+   ExecutorAddr MinAddr(~0ULL);
+ 
+@@ -207,7 +207,7 @@ Error ExecutorSharedMemoryMapperService::deinitialize(
+ 
+ Error ExecutorSharedMemoryMapperService::release(
+     const std::vector<ExecutorAddr> &Bases) {
+-#if defined(LLVM_ON_UNIX) || defined(_WIN32)
++#if (defined(LLVM_ON_UNIX) && !defined(__ANDROID__)) || defined(_WIN32)
+   Error Err = Error::success();
+ 
+   for (auto Base : Bases) {
+diff --git a/llvm/unittests/ExecutionEngine/Orc/SharedMemoryMapperTest.cpp b/llvm/unittests/ExecutionEngine/Orc/SharedMemoryMapperTest.cpp
+index aa6e92252d85..9f44184ccc77 100644
+--- a/llvm/unittests/ExecutionEngine/Orc/SharedMemoryMapperTest.cpp
++++ b/llvm/unittests/ExecutionEngine/Orc/SharedMemoryMapperTest.cpp
+@@ -18,7 +18,7 @@ using namespace llvm::orc;
+ using namespace llvm::orc::shared;
+ using namespace llvm::orc::rt_bootstrap;
+ 
+-#if defined(LLVM_ON_UNIX) || defined(_WIN32)
++#if (defined(LLVM_ON_UNIX) && !defined(__ANDROID__)) || defined(_WIN32)
+ 
+ // A basic function to be used as both initializer/deinitializer
+ orc::shared::CWrapperFunctionResult incrementWrapper(const char *ArgData,
+-- 
+2.37.1.559.g78731f0fdb-goog
+

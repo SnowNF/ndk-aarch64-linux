@@ -1,0 +1,15 @@
+[FORMAT]
+# four spaces for each indentation level.
+indent-string='    '
+max-line-length=100
+
+[MASTER]
+# tell pylint where to find import modules: paths, utils, etc.
+init-hook='import sys; sys.path.append("."); sys.path.append("../../external/toolchain-utils/llvm_tools")'
+
+[MESSAGES CONTROL]
+# C0111 = Missing docstring
+# C0103 = invalid name
+# W0012 = unknown-option-value
+# W0403 = Relative imports
+disable=C0103,C0111,W0012,W0403

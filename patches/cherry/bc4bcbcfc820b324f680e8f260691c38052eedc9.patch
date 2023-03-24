@@ -1,0 +1,30 @@
+From bc4bcbcfc820b324f680e8f260691c38052eedc9 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Micha=C5=82=20G=C3=B3rny?= <mgorny@gentoo.org>
+Date: Thu, 6 Oct 2022 14:41:52 +0200
+Subject: [PATCH] [llvm] [test] Add missing canonicalization of
+ LLVM_ENABLE_ZSTD
+
+Add LLVM_ENABLE_ZSTD to llvm_canonicalize_cmake_booleans().  This is
+needed to ensure that the substitutions in lit.site.cfg.py resolve
+to correct Python booleans.
+
+Differential Revision: https://reviews.llvm.org/D135357
+---
+ llvm/test/CMakeLists.txt | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/llvm/test/CMakeLists.txt b/llvm/test/CMakeLists.txt
+index 5cf783c1758..2c2e390338b 100644
+--- a/llvm/test/CMakeLists.txt
++++ b/llvm/test/CMakeLists.txt
+@@ -8,6 +8,7 @@ llvm_canonicalize_cmake_booleans(
+   LLVM_ENABLE_CURL
+   LLVM_ENABLE_HTTPLIB
+   LLVM_ENABLE_ZLIB
++  LLVM_ENABLE_ZSTD
+   LLVM_ENABLE_LIBXML2
+   LLVM_INCLUDE_GO_TESTS
+   LLVM_LINK_LLVM_DYLIB
+-- 
+2.38.1.431.g37b22c650d-goog
+

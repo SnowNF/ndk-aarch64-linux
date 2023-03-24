@@ -1,0 +1,45 @@
+From d4dc036e70330ac205a65e4cfbc82cc1dfeda3e8 Mon Sep 17 00:00:00 2001
+From: Craig Topper <craig.topper@sifive.com>
+Date: Mon, 24 Oct 2022 20:30:54 -0700
+Subject: [PATCH] [RISCV] Move vector cost table lookup out of the switch in
+ getIntrinsicInstrCost. NFC
+
+This allows vectors to be looked up if the switch is used for the
+scalar version of an intrinsic.
+
+Extracted from D136508.
+---
+ .../Target/RISCV/RISCVTargetTransformInfo.cpp    | 16 ++++++++--------
+ 1 file changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/llvm/lib/Target/RISCV/RISCVTargetTransformInfo.cpp b/llvm/lib/Target/RISCV/RISCVTargetTransformInfo.cpp
+index 64d214b611b0..f36443600ab2 100644
+--- a/llvm/lib/Target/RISCV/RISCVTargetTransformInfo.cpp
++++ b/llvm/lib/Target/RISCV/RISCVTargetTransformInfo.cpp
+@@ -511,15 +511,15 @@ RISCVTTIImpl::getIntrinsicInstrCost(const IntrinsicCostAttributes &ICA,
+     auto LT = getTypeLegalizationCost(RetTy);
+     return Cost + (LT.first - 1);
+   }
+-  default:
+-    if (ST->hasVInstructions() && RetTy->isVectorTy()) {
+-      auto LT = getTypeLegalizationCost(RetTy);
+-      if (const auto *Entry = CostTableLookup(VectorIntrinsicCostTable,
+-                                              ICA.getID(), LT.second))
+-        return LT.first * Entry->Cost;
+-    }
+-    break;
+   }
++
++  if (ST->hasVInstructions() && RetTy->isVectorTy()) {
++    auto LT = getTypeLegalizationCost(RetTy);
++    if (const auto *Entry = CostTableLookup(VectorIntrinsicCostTable,
++                                            ICA.getID(), LT.second))
++      return LT.first * Entry->Cost;
++  }
++
+   return BaseT::getIntrinsicInstrCost(ICA, CostKind);
+ }
+ 
+-- 
+2.38.1.584.g0f3c55d4c2-goog
+

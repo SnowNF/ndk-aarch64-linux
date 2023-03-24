@@ -1,0 +1,33 @@
+From 7b7db789ff3d8750d1098dcc84aa29d11877d610 Mon Sep 17 00:00:00 2001
+From: Kirill Stoimenov <kstoimenov@google.com>
+Date: Thu, 23 Feb 2023 20:30:53 +0000
+Subject: [PATCH] [HWASAN][LSAN] Only initialize Symbolizer if leak checking is
+ enabled
+
+Reviewed By: hctim
+
+Differential Revision: https://reviews.llvm.org/D144669
+---
+ compiler-rt/lib/hwasan/hwasan.cpp | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/compiler-rt/lib/hwasan/hwasan.cpp b/compiler-rt/lib/hwasan/hwasan.cpp
+index b7a95cad99d3..662cfb4e9f80 100644
+--- a/compiler-rt/lib/hwasan/hwasan.cpp
++++ b/compiler-rt/lib/hwasan/hwasan.cpp
+@@ -400,11 +400,9 @@ __attribute__((constructor(0))) void __hwasan_init() {
+   __ubsan::InitAsPlugin();
+ #endif
+ 
+-  if (CAN_SANITIZE_LEAKS) {
++  if (CAN_SANITIZE_LEAKS && common_flags()->detect_leaks) {
+     __lsan::ScopedInterceptorDisabler disabler;
+     Symbolizer::LateInitialize();
+-  } else {
+-    Symbolizer::LateInitialize();
+   }
+ 
+   VPrintf(1, "HWAddressSanitizer init done\n");
+-- 
+2.34.1
+

@@ -1,0 +1,130 @@
+From ded26bf6b9175201a0627f019e642bf74d2b48b1 Mon Sep 17 00:00:00 2001
+From: Guozhi Wei <carrot@google.com>
+Date: Mon, 3 Oct 2022 18:38:33 +0000
+Subject: [PATCH] [IVDescriptors] Before moving an instruction in SinkAfter
+ checking if it is target of other instructions
+
+The attached test case can cause LLVM crash in buildVPlanWithVPRecipes because
+invalid VPlan is generated.
+
+  FIRST-ORDER-RECURRENCE-PHI ir<%792> = phi ir<%501>, ir<%806>
+  CLONE ir<%804> = fdiv ir<1.000000e+00>, vp<%17>      // use of %17
+  CLONE ir<%806> = load ir<%805>
+  EMIT vp<%17> = first-order splice ir<%792> ir<%806>   // def of %17
+  ...
+
+There is a use before def error on %17.
+
+When vectorizer generates a VPlan, it generates a "first-order splice"
+instruction for a loop carried variable after its definition. All related PHI
+users are changed to use this "first-order splice" result, and are moved after
+it. The move is guided by a MapVector SinkAfter. And the content of SinkAfter is
+filled by RecurrenceDescriptor::isFixedOrderRecurrence.
+
+Let's look at the first PHI and related instructions
+
+  %v792 = phi double [ %v806, %Loop ], [ %d1, %Entry ]
+  %v802 = fdiv double %v794, %v792
+  %v804 = fdiv double 1.000000e+00, %v792
+  %v806 = load double, ptr %v805, align 8
+
+%v806 is a loop carried variable, %v792 is related PHI instruction. Vectorizer
+will generated a new "first-order splice" instruction for %v806, and it will be
+used by %v802 and %v804. So %v802 and %v804 will be moved after %v806 and its
+"first-order splice" instruction. So SinkAfter contains
+
+   %v802   ->  %v806
+   %v804   ->  %v802
+
+It means %v802 should be moved after %v806 and %v804 will be moved after %v802.
+Please pay attention that the order is important.
+
+When isFixedOrderRecurrence processing PHI instruction %v794, related
+instructions are
+
+  %v793 = phi double [ %v813, %Loop ], [ %d1, %Entry ]
+  %v794 = phi double [ %v793, %Loop ], [ %d2, %Entry ]
+  %v802 = fdiv double %v794, %v792
+  %v813 = load double, ptr %v812, align 8
+
+This time its related loop carried variable is %v813, its user is %v802. So
+%v802 should also be moved after %v813. But %v802 is already in SinkAfter,
+because %v813 is later than %v806, so the original %v802 entry in SinkAfter is
+deleted, a new %v802 entry is added. Now SinkAfter contains
+
+  %v804   ->  %v802
+  %v802   ->  %v813
+
+With these data, %v802 can still be moved after all its operands, but %v804
+can't be moved after %v806 and its "first-order splice" instruction. And causes
+use before def error.
+
+So when remove/re-insert an instruction I in SinkAfter, we should also
+recursively remove instructions targeting I and re-insert them into SinkAfter.
+But for simplicity I just bail out in this case.
+
+Differential Revision: https://reviews.llvm.org/D134083
+---
+ llvm/lib/Analysis/IVDescriptors.cpp           | 10 +++++++
+ .../first-order-recurrence-chains.ll          | 27 +++++++++++++++++++
+ 2 files changed, 37 insertions(+)
+
+diff --git a/llvm/lib/Analysis/IVDescriptors.cpp b/llvm/lib/Analysis/IVDescriptors.cpp
+index d3f6c9e25ae6..e42512b41aa6 100644
+--- a/llvm/lib/Analysis/IVDescriptors.cpp
++++ b/llvm/lib/Analysis/IVDescriptors.cpp
+@@ -1025,6 +1025,16 @@ bool RecurrenceDescriptor::isFixedOrderRecurrence(
+       // Previous. Nothing left to do.
+       if (DT->dominates(Previous, OtherPrev) || Previous == OtherPrev)
+         return true;
++
++      // If there are other instructions to be sunk after SinkCandidate, remove
++      // and re-insert SinkCandidate can break those instructions. Bail out for
++      // simplicity.
++      if (any_of(SinkAfter,
++          [SinkCandidate](const std::pair<Instruction *, Instruction *> &P) {
++            return P.second == SinkCandidate;
++          }))
++        return false;
++
+       // Otherwise, Previous comes after OtherPrev and SinkCandidate needs to be
+       // re-sunk to Previous, instead of sinking to OtherPrev. Remove
+       // SinkCandidate from SinkAfter to ensure it's insert position is updated.
+diff --git a/llvm/test/Transforms/LoopVectorize/first-order-recurrence-chains.ll b/llvm/test/Transforms/LoopVectorize/first-order-recurrence-chains.ll
+index 6e054809fbb9..2476b272c26a 100644
+--- a/llvm/test/Transforms/LoopVectorize/first-order-recurrence-chains.ll
++++ b/llvm/test/Transforms/LoopVectorize/first-order-recurrence-chains.ll
+@@ -637,3 +637,30 @@ loop:
+ exit:
+   ret void
+ }
++
++; Make sure LLVM doesn't generate wrong data in SinkAfter, and causes crash in
++; loop vectorizer.
++define void @test_crash(ptr %p) {
++; CHECK-LABEL: @test_crash
++; CHECK-NOT:   vector.body:
++; CHECK:       ret
++Entry:
++  br label %Loop
++
++Loop:
++  %for.1 = phi double [ %iv1, %Loop ], [ 0.000000e+00, %Entry ]
++  %for.2 = phi double [ %iv2, %Loop ], [ 0.000000e+00, %Entry ]
++  %for.3 = phi double [ %for.2, %Loop ], [ 0.000000e+00, %Entry ]
++  %for.4 = phi i64 [ %count, %Loop ], [ 0, %Entry ]
++  %USE_2_INDVARS = fdiv double %for.3, %for.1
++  %div = fdiv double 0.000000e+00, %for.1
++  %iv1 = load double, ptr null, align 8
++  %count = add nuw nsw i64 %for.4, 1
++  %iv2 = load double, ptr null, align 8
++  store double %div, ptr %p, align 8
++  %cond = icmp eq i64 %count, 0
++  br i1 %cond, label %End, label %Loop
++
++End:
++  ret void
++}
+-- 
+2.38.0.rc2.412.g84df46c1b4-goog
+

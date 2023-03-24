@@ -1,0 +1,46 @@
+commit 36f77e20d9aaaf93a9b00ec1bd6b7e3ceb4918b9
+Author: Kadir Cetinkaya <kadircet@google.com>
+Date:   Thu Oct 6 11:39:43 2022 +0200
+
+    Revert "Revert "[clang][Lex] Fix a crash on malformed string literals""
+    
+    This reverts commit feea7ef23cb1bef92d363cc613052f8f3a878fc2.
+    Drops the test case, see https://reviews.llvm.org/D135161#3839510
+
+diff --git a/clang/lib/Lex/LiteralSupport.cpp b/clang/lib/Lex/LiteralSupport.cpp
+index 1a48a68c28b6..160240e49dd7 100644
+--- a/clang/lib/Lex/LiteralSupport.cpp
++++ b/clang/lib/Lex/LiteralSupport.cpp
+@@ -545,7 +545,6 @@ static bool ProcessNamedUCNEscape(const char *ThisTokBegin,
+            diag::err_delimited_escape_missing_brace)
+           << StringRef(&ThisTokBuf[-1], 1);
+     }
+-    ThisTokBuf++;
+     return false;
+   }
+   ThisTokBuf++;
+diff --git a/clang/test/Lexer/char-escapes-delimited.c b/clang/test/Lexer/char-escapes-delimited.c
+index 65e3dc740e3b..43ade65a5830 100644
+--- a/clang/test/Lexer/char-escapes-delimited.c
++++ b/clang/test/Lexer/char-escapes-delimited.c
+@@ -94,7 +94,7 @@ void named(void) {
+ 
+   unsigned h = U'\N{LOTUS}';                      // ext-warning {{extension}} cxx2b-warning {{C++2b}}
+   unsigned i = u'\N{GREEK CAPITAL LETTER DELTA}'; // ext-warning {{extension}} cxx2b-warning {{C++2b}}
+-  char j = '\NN';                                 // expected-error {{expected '{' after '\N' escape sequence}}
++  char j = '\NN';                                 // expected-error {{expected '{' after '\N' escape sequence}} expected-warning {{multi-character character constant}}
+   unsigned k = u'\N{LOTUS';                       // expected-error {{incomplete universal character name}}
+ }
+ 
+diff --git a/clang/unittests/Lex/LexerTest.cpp b/clang/unittests/Lex/LexerTest.cpp
+index 0ad644ce7146..c5982b859289 100644
+--- a/clang/unittests/Lex/LexerTest.cpp
++++ b/clang/unittests/Lex/LexerTest.cpp
+@@ -18,6 +18,7 @@
+ #include "clang/Basic/TokenKinds.h"
+ #include "clang/Lex/HeaderSearch.h"
+ #include "clang/Lex/HeaderSearchOptions.h"
++#include "clang/Lex/LiteralSupport.h"
+ #include "clang/Lex/MacroArgs.h"
+ #include "clang/Lex/MacroInfo.h"
+ #include "clang/Lex/ModuleLoader.h"

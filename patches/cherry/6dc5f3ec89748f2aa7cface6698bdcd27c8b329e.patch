@@ -1,0 +1,25 @@
+From 6dc5f3ec89748f2aa7cface6698bdcd27c8b329e Mon Sep 17 00:00:00 2001
+From: David Green <david.green@arm.com>
+Date: Sat, 1 Oct 2022 16:14:00 +0100
+Subject: [PATCH] Foward declare ParsedTargetAttr as a struct.
+
+---
+ clang/include/clang/Basic/TargetInfo.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/clang/include/clang/Basic/TargetInfo.h b/clang/include/clang/Basic/TargetInfo.h
+index 0b42e21a4158..d37d84d121d4 100644
+--- a/clang/include/clang/Basic/TargetInfo.h
++++ b/clang/include/clang/Basic/TargetInfo.h
+@@ -49,7 +49,7 @@ class DiagnosticsEngine;
+ class LangOptions;
+ class CodeGenOptions;
+ class MacroBuilder;
+-class ParsedTargetAttr;
++struct ParsedTargetAttr;
+ 
+ namespace Builtin { struct Info; }
+ 
+-- 
+2.39.0.314.g84b9a713c41-goog
+

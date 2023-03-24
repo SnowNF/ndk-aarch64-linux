@@ -1,0 +1,67 @@
+From 18b4a8bcf3553174f770f09528c9bd01c8cebfe7 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
+Date: Thu, 14 Jul 2022 22:39:55 +0300
+Subject: [PATCH] [clang-tidy] Rename the make-confusable-table executable
+
+Rename it to clang-tidy-confusable-chars-gen, to make its role
+clearer in a wider context.
+
+In cross builds, the caller might want to provide this tool
+externally (to avoid needing to rebuild it in the cross build).
+In such a case, having the tool properly namespaced makes its role
+clearer.
+
+This matches how the clang-pseudo-gen tool was renamed in
+a43fef05d4fae32f02365c7b8fef2aa631d23628 / D126725.
+
+Differential Revision: https://reviews.llvm.org/D129798
+---
+ clang-tools-extra/clang-tidy/misc/CMakeLists.txt            | 6 +++---
+ .../clang-tidy/misc/ConfusableTable/CMakeLists.txt          | 2 +-
+ .../clang-tidy/misc/ConfusableTable/BUILD.gn                | 2 +-
+ 3 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/clang-tools-extra/clang-tidy/misc/CMakeLists.txt b/clang-tools-extra/clang-tidy/misc/CMakeLists.txt
+index 04172db29ea5..ee8fe0b37fce 100644
+--- a/clang-tools-extra/clang-tidy/misc/CMakeLists.txt
++++ b/clang-tools-extra/clang-tidy/misc/CMakeLists.txt
+@@ -4,11 +4,11 @@ set(LLVM_LINK_COMPONENTS
+   )
+ 
+ if(LLVM_USE_HOST_TOOLS)
+-  build_native_tool(make-confusable-table make_confusable_table)
++  build_native_tool(clang-tidy-confusable-chars-gen make_confusable_table)
+   set(make_confusable_table_target "${make_confusable_table}")
+ else()
+-  set(make_confusable_table $<TARGET_FILE:make-confusable-table>)
+-  set(make_confusable_table_target make-confusable-table)
++  set(make_confusable_table $<TARGET_FILE:clang-tidy-confusable-chars-gen>)
++  set(make_confusable_table_target clang-tidy-confusable-chars-gen)
+ endif()
+ 
+ add_subdirectory(ConfusableTable)
+diff --git a/clang-tools-extra/clang-tidy/misc/ConfusableTable/CMakeLists.txt b/clang-tools-extra/clang-tidy/misc/ConfusableTable/CMakeLists.txt
+index a35f206fbf78..f0ad2dbc0c57 100644
+--- a/clang-tools-extra/clang-tidy/misc/ConfusableTable/CMakeLists.txt
++++ b/clang-tools-extra/clang-tidy/misc/ConfusableTable/CMakeLists.txt
+@@ -1,6 +1,6 @@
+ set(LLVM_LINK_COMPONENTS Support)
+ list(REMOVE_ITEM LLVM_COMMON_DEPENDS clang-tablegen-targets)
+ 
+-add_llvm_executable(make-confusable-table
++add_llvm_executable(clang-tidy-confusable-chars-gen
+   BuildConfusableTable.cpp
+   )
+diff --git a/llvm/utils/gn/secondary/clang-tools-extra/clang-tidy/misc/ConfusableTable/BUILD.gn b/llvm/utils/gn/secondary/clang-tools-extra/clang-tidy/misc/ConfusableTable/BUILD.gn
+index 10521474ce57..25025c499f04 100644
+--- a/llvm/utils/gn/secondary/clang-tools-extra/clang-tidy/misc/ConfusableTable/BUILD.gn
++++ b/llvm/utils/gn/secondary/clang-tools-extra/clang-tidy/misc/ConfusableTable/BUILD.gn
+@@ -1,4 +1,4 @@
+-executable("make-confusable-table") {
++executable("clang-tidy-confusable-chars-gen") {
+   deps = [ "//llvm/lib/Support" ]
+   sources = [ "BuildConfusableTable.cpp" ]
+ }
+-- 
+2.37.1.595.g718a3a8f04-goog
+

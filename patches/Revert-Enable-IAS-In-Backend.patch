@@ -1,0 +1,39 @@
+Revert: [PATCH] [BPF] Enable IAS in backend
+
+Revert diff of commit c2d27c89593e92f8e557f27ec02f083760eeab2d:
+  From: Brad Smith <brad@comstyle.com>
+  Date: Sun, 5 Jun 2022 23:28:53 -0400
+  Subject: [PATCH] [BPF] Enable IAS in backend
+  Reviewed By: MaskRay
+  Differential Revision: https://reviews.llvm.org/D123845
+
+diff --git a/llvm/lib/Target/BPF/MCTargetDesc/BPFMCAsmInfo.h b/llvm/lib/Target/BPF/MCTargetDesc/BPFMCAsmInfo.h
+index 14f6b367b8c7..3292c3e5ebb5 100644
+--- a/llvm/lib/Target/BPF/MCTargetDesc/BPFMCAsmInfo.h
++++ b/llvm/lib/Target/BPF/MCTargetDesc/BPFMCAsmInfo.h
+@@ -41,6 +41,8 @@ public:
+     // section will be parsable, but with odd offsets and
+     // line numbers, etc.
+     CodePointerSize = 8;
++
++    UseIntegratedAssembler = false;
+   }
+ 
+   void setDwarfUsesRelocationsAcrossSections(bool enable) {
+diff --git a/llvm/test/CodeGen/BPF/inline_asm.ll b/llvm/test/CodeGen/BPF/inline_asm.ll
+index 8d14cd95d65b..138e02db6235 100644
+--- a/llvm/test/CodeGen/BPF/inline_asm.ll
++++ b/llvm/test/CodeGen/BPF/inline_asm.ll
+@@ -35,10 +35,10 @@ entry:
+   %2 = tail call i32 asm sideeffect "$0 = $1 ll", "=r,i"(i64 333333333333) #2
+ ; CHECK: r1 = 333333333333 ll
+   %3 = call i32 asm sideeffect "$0 = *(u16 *) $1", "=r,*m"(i32* elementtype(i32) nonnull %a) #2
+-; CHECK: r1 = *(u16 *)(r10 - 4)
++; CHECK: r1 = *(u16 *) (r10 - 4)
+   %4 = call i32 asm sideeffect "$0 = *(u32 *) $1", "=r,*m"(i32* elementtype(i32) getelementptr inbounds ([2 x i32], [2 x i32]* @g, i64 0, i64 1)) #2
+ ; CHECK: r1 = g ll
+-; CHECK: r0 = *(u32 *)(r1 + 4)
++; CHECK: r0 = *(u32 *) (r1 + 4)
+   call void @llvm.lifetime.end.p0i8(i64 4, i8* nonnull %0) #2
+   ret i32 %4
+ }

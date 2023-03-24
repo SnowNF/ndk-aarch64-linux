@@ -1,0 +1,94 @@
+From 2675875da48495dfe56a22f632fc09178d219bec Mon Sep 17 00:00:00 2001
+From: Matthias Blume <blume@google.com>
+Date: Tue, 21 Feb 2023 15:58:12 -0600
+Subject: [PATCH] Implements a flag wasm-omit-64-bit-function-pointer-cast.
+
+This only applies to the wasm memory64 target.
+If used, it produces currently INVALID wasm which
+requires a downstream tool modification (e.g., in wabt)
+to be accepted.  The effect is that the 64->32 bit cast
+for function pointers prior to them being used as indices
+into the indirect function table are omitted
+(as if tables took a 64-bit index).
+
+It is expected that the memory64 proposal will be amended
+to include table64, which will in fact have that property.
+Until then this flag constitutes a hack.
+
+Change-Id: Ida364a940e153fddef116fa7f602ff4ec251b500
+---
+ llvm/lib/Target/WebAssembly/WebAssemblyFastISel.cpp    |  3 ++-
+ .../lib/Target/WebAssembly/WebAssemblyISelLowering.cpp |  3 ++-
+ .../Target/WebAssembly/WebAssemblyTargetMachine.cpp    | 10 ++++++++++
+ llvm/lib/Target/WebAssembly/WebAssemblyTargetMachine.h |  2 ++
+ 4 files changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/llvm/lib/Target/WebAssembly/WebAssemblyFastISel.cpp b/llvm/lib/Target/WebAssembly/WebAssemblyFastISel.cpp
+index 1bb2d6bf9e79..3f6d59eb284a 100644
+--- a/llvm/lib/Target/WebAssembly/WebAssemblyFastISel.cpp
++++ b/llvm/lib/Target/WebAssembly/WebAssemblyFastISel.cpp
+@@ -885,7 +885,8 @@ bool WebAssemblyFastISel::selectCall(const Instruction *I) {
+     // CALL_INDIRECT takes an i32, but in wasm64 we represent function pointers
+     // as 64-bit for uniformity with other pointer types.
+     // See also: WebAssemblyISelLowering.cpp: LowerCallResults
+-    if (Subtarget->hasAddr64()) {
++    if (!WebAssemblyTargetMachine::omit64BitFunctionPointerCast() &&
++        Subtarget->hasAddr64()) {
+       auto Wrap = BuildMI(*FuncInfo.MBB, std::prev(FuncInfo.InsertPt), MIMD,
+                           TII.get(WebAssembly::I32_WRAP_I64));
+       Register Reg32 = createResultReg(&WebAssembly::I32RegClass);
+diff --git a/llvm/lib/Target/WebAssembly/WebAssemblyISelLowering.cpp b/llvm/lib/Target/WebAssembly/WebAssemblyISelLowering.cpp
+index 94544800a6fb..908077405730 100644
+--- a/llvm/lib/Target/WebAssembly/WebAssemblyISelLowering.cpp
++++ b/llvm/lib/Target/WebAssembly/WebAssemblyISelLowering.cpp
+@@ -566,7 +566,8 @@ LowerCallResults(MachineInstr &CallResults, DebugLoc DL, MachineBasicBlock *BB,
+   // CALL_INDIRECT takes an i32, but in wasm64 we represent function pointers
+   // as 64-bit for uniformity with other pointer types.
+   // See also: WebAssemblyFastISel::selectCall
+-  if (IsIndirect && MF.getSubtarget<WebAssemblySubtarget>().hasAddr64()) {
++  if (!WebAssemblyTargetMachine::omit64BitFunctionPointerCast() && IsIndirect &&
++      MF.getSubtarget<WebAssemblySubtarget>().hasAddr64()) {
+     Register Reg32 =
+         MF.getRegInfo().createVirtualRegister(&WebAssembly::I32RegClass);
+     auto &FnPtr = CallParams.getOperand(0);
+diff --git a/llvm/lib/Target/WebAssembly/WebAssemblyTargetMachine.cpp b/llvm/lib/Target/WebAssembly/WebAssemblyTargetMachine.cpp
+index 630c786a3dc7..b42467414cc5 100644
+--- a/llvm/lib/Target/WebAssembly/WebAssemblyTargetMachine.cpp
++++ b/llvm/lib/Target/WebAssembly/WebAssemblyTargetMachine.cpp
+@@ -47,6 +47,12 @@ static cl::opt<bool> WasmDisableExplicitLocals(
+              " instruction output for test purposes only."),
+     cl::init(false));
+ 
++static cl::opt<bool> WasmOmit64BitFunctionPointerCast(
++    "wasm-omit-64-bit-function-pointer-cast",
++    cl::desc("WebAssembly: omit the cast from 64 bit to 32 bit for indices "
++             "into the function pointer table (experimental)."),
++    cl::init(false));
++
+ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeWebAssemblyTarget() {
+   // Register the target.
+   RegisterTargetMachine<WebAssemblyTargetMachine> X(
+@@ -621,3 +627,7 @@ bool WebAssemblyTargetMachine::parseMachineFunctionInfo(
+   MF.getInfo<WebAssemblyFunctionInfo>()->initializeBaseYamlFields(MF, YamlMFI);
+   return false;
+ }
++
++bool WebAssemblyTargetMachine::omit64BitFunctionPointerCast() {
++  return WasmOmit64BitFunctionPointerCast;
++}
+diff --git a/llvm/lib/Target/WebAssembly/WebAssemblyTargetMachine.h b/llvm/lib/Target/WebAssembly/WebAssemblyTargetMachine.h
+index 04bf2de81fe6..5f30067c1181 100644
+--- a/llvm/lib/Target/WebAssembly/WebAssemblyTargetMachine.h
++++ b/llvm/lib/Target/WebAssembly/WebAssemblyTargetMachine.h
+@@ -62,6 +62,8 @@ public:
+                                 PerFunctionMIParsingState &PFS,
+                                 SMDiagnostic &Error,
+                                 SMRange &SourceRange) const override;
++
++  static bool omit64BitFunctionPointerCast();
+ };
+ 
+ } // end namespace llvm
+-- 
+2.39.2.637.g21b0678d19-goog
+

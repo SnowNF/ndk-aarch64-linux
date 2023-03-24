@@ -1,0 +1,59 @@
+From 7fe475756b26080fe0bb02e8e317662ccc9a01f1 Mon Sep 17 00:00:00 2001
+From: Colin Cross <ccross@android.com>
+Date: Thu, 15 Sep 2022 23:58:57 +0000
+Subject: [PATCH] Set HOME for tests that use module cache path
+
+Getting the default module cache path calls llvm::sys::path::cache_directory,
+which calls home_directory, which checks the HOME environment variable
+before falling back to getpwuid.  When compiling against musl libc,
+which does not support NSS, and running on a machine that doesn't have
+the current user in /etc/passwd due to NSS, no home directory can
+be found.  Set the HOME environment variable in the tests to avoid
+depending on getpwuid.
+
+Reviewed By: pirama, srhines
+
+Differential Revision: https://reviews.llvm.org/D132984
+---
+ clang/test/Driver/modules-cache-path.m | 2 +-
+ clang/test/Modules/driver.c            | 2 +-
+ clang/test/Unit/lit.cfg.py             | 3 +++
+ 3 files changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/clang/test/Driver/modules-cache-path.m b/clang/test/Driver/modules-cache-path.m
+index 1da27d214363..302a8bb1e3b9 100644
+--- a/clang/test/Driver/modules-cache-path.m
++++ b/clang/test/Driver/modules-cache-path.m
+@@ -1,4 +1,4 @@
+-// RUN: %clang -fmodules -### %s 2>&1 | FileCheck %s -check-prefix=CHECK-DEFAULT
++// RUN: env HOME=%t.home %clang -fmodules -### %s 2>&1 | FileCheck %s -check-prefix=CHECK-DEFAULT
+ // CHECK-DEFAULT: -fmodules-cache-path={{.*}}clang{{[/\\]+}}ModuleCache
+ 
+ // RUN: env CLANG_MODULE_CACHE_PATH=/dev/null \
+diff --git a/clang/test/Modules/driver.c b/clang/test/Modules/driver.c
+index 34fc163a5ccd..abd2e7040475 100644
+--- a/clang/test/Modules/driver.c
++++ b/clang/test/Modules/driver.c
+@@ -1,4 +1,4 @@
+-// RUN: %clang -fmodules -fimplicit-module-maps %s -### 2>&1 | FileCheck -check-prefix CHECK-NO_MODULE_CACHE %s
++// RUN: env HOME=%t.home %clang -fmodules -fimplicit-module-maps %s -### 2>&1 | FileCheck -check-prefix CHECK-NO_MODULE_CACHE %s
+ // RUN: %clang -fmodules -fimplicit-module-maps -fmodules-cache-path=blarg %s -### 2>&1 | FileCheck -check-prefix CHECK-WITH_MODULE_CACHE %s
+ 
+ // CHECK-NO_MODULE_CACHE: {{clang.*"-fmodules-cache-path=.*ModuleCache"}}
+diff --git a/clang/test/Unit/lit.cfg.py b/clang/test/Unit/lit.cfg.py
+index 6fddb32f8dd7..60a1e79e9330 100644
+--- a/clang/test/Unit/lit.cfg.py
++++ b/clang/test/Unit/lit.cfg.py
+@@ -30,6 +30,9 @@ if 'TMP' in os.environ:
+ if 'TEMP' in os.environ:
+     config.environment['TEMP'] = os.environ['TEMP']
+ 
++if 'HOME' in os.environ:
++    config.environment['HOME'] = os.environ['HOME']
++
+ # Propagate sanitizer options.
+ for var in [
+     'ASAN_SYMBOLIZER_PATH',
+-- 
+2.37.3.968.ga6b4b080e4-goog
+

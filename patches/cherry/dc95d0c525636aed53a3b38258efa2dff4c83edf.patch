@@ -1,0 +1,36 @@
+From dc95d0c525636aed53a3b38258efa2dff4c83edf Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Martin=20Storsj=C3=B6?= <martin@martin.st>
+Date: Thu, 14 Jul 2022 22:46:04 +0300
+Subject: [PATCH] [clang-tidy] Add CLANG_TIDY_CONFUSABLE_CHARS_GEN cmake cache
+ variable to avoid building when cross compiling
+
+This is similar to the LLVM_TABLEGEN, CLANG_TABLEGEN and
+CLANG_PSEUDO_GEN cmake cache variables.
+
+Differential Revision: https://reviews.llvm.org/D129799
+---
+ clang-tools-extra/clang-tidy/misc/CMakeLists.txt | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/clang-tools-extra/clang-tidy/misc/CMakeLists.txt b/clang-tools-extra/clang-tidy/misc/CMakeLists.txt
+index ee8fe0b37fce..de76b4b00c36 100644
+--- a/clang-tools-extra/clang-tidy/misc/CMakeLists.txt
++++ b/clang-tools-extra/clang-tidy/misc/CMakeLists.txt
+@@ -3,7 +3,13 @@ set(LLVM_LINK_COMPONENTS
+   Support
+   )
+ 
+-if(LLVM_USE_HOST_TOOLS)
++set(CLANG_TIDY_CONFUSABLE_CHARS_GEN "clang-tidy-confusable-chars-gen" CACHE
++  STRING "Host clang-tidy-confusable-chars-gen executable. Saves building if cross-compiling.")
++
++if(NOT CLANG_TIDY_CONFUSABLE_CHARS_GEN STREQUAL "clang-tidy-confusable-chars-gen")
++  set(make_confusable_table ${CLANG_TIDY_CONFUSABLE_CHARS_GEN})
++  set(make_confusable_table_target ${CLANG_TIDY_CONFUSABLE_CHARS_GEN})
++elseif(LLVM_USE_HOST_TOOLS)
+   build_native_tool(clang-tidy-confusable-chars-gen make_confusable_table)
+   set(make_confusable_table_target "${make_confusable_table}")
+ else()
+-- 
+2.37.1.595.g718a3a8f04-goog
+

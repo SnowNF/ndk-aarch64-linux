@@ -1,0 +1,156 @@
+git_master:
+    adt3-userdebug:
+        groups: arm64
+    cf_x86_64_phone-userdebug:
+        groups: x86_64 smoke
+        tests:
+            - avd/avd_boot_health_check
+    aosp_bramble-userdebug:
+        groups: arm64 smoke
+        tests:
+            - apct/bionic/native_test
+            - apct/device_boot_health_check_extra
+    cf_x86_phone-userdebug_coverage:
+        groups: x86 coverage
+        tests:
+            - avd/avd_boot_health_check
+            - apct/rust/doh_coverage
+            - apct/rust/unicode-xid_coverage
+            - apct/neuralnetworks/native_test_x86_coverage
+    cf_x86_64_phone-userdebug_coverage:
+        groups: x86 coverage
+        tests:
+            - avd/avd_boot_health_check
+            - apct/rust/doh_coverage
+            - apct/rust/unicode-xid_coverage
+            - apct/neuralnetworks/native_test_x86_coverage
+    coral-userdebug:
+        groups: arm64
+        tests:
+            - apct/bionic/native_test
+            - apct/device_boot_health_check_extra
+    flame-userdebug:
+        groups: arm64
+        tests:
+            - apct/bionic/native_test
+            - apct/device_boot_health_check_extra
+    flame_hwasan-userdebug:
+        groups: arm64 hwasan
+        test:
+            - apct/device_boot_health_check_extra
+    bramble-userdebug:
+        groups: arm64
+        tests:
+            - apct/bionic/native_test
+            - apct/device_boot_health_check_extra
+    redfin-userdebug:
+        groups: arm64
+        tests:
+            - apct/bionic/native_test
+            - apct/device_boot_health_check_extra
+    sunfish-userdebug:
+        groups: arm64
+        tests:
+            - apct/bionic/native_test
+            - apct/device_boot_health_check_extra
+    oriole-userdebug:
+        groups: arm64
+        tests:
+            - apct/bionic/native_test
+    raven-userdebug:
+        groups: arm64
+        tests:
+            - apct/bionic/native_test
+    wembley_2GB-userdebug:
+        groups: arm64
+    ndk_translation_all:
+        tests:
+            - apct/gtest_host_unit_tests
+
+RELEASE_BRANCH_3:
+    cf_x86_64_phone_analyzer-userdebug:
+        groups: tidy
+    coral_analyzer-userdebug:
+        groups: tidy
+    pgo-coral-config1:
+        groups: pgo
+        tests:
+            - apct/perf/pgo/apk-profile-collector
+
+git_master-art-host:
+    art-test:
+
+aosp-master:
+    aosp_cf_x86_64_phone-userdebug:
+        groups: x86_64 smoke
+        tests:
+            - avd/avd_boot_health_check
+    aosp_arm64-userdebug:
+        groups: arm64
+    aosp_x86_64-userdebug:
+        groups: x86_64
+    sdk_x86_64-sdk:
+    ndk:
+    test_suites_x86_64:
+
+aosp-master-throttled:
+    renderscript:
+
+# device_boot_health_check_extra fails in stage-aosp-master because of
+# unchecked selinux denials.  Use device_boot_health_check instead.
+git_stage-aosp-master:
+    aosp_arm64-eng:
+        groups: arm64
+    aosp_raven-userdebug:
+        groups: arm64
+        tests:
+            - apct/bionic/native_test
+            - apct/device_boot_health_check
+    aosp_oriole-userdebug:
+        groups: arm64 smoke
+        tests:
+            - apct/bionic/native_test
+            - apct/device_boot_health_check
+    aosp_coral-userdebug:
+        groups: arm64
+        tests:
+            - apct/bionic/native_test
+            - apct/device_boot_health_check
+    aosp_flame-userdebug:
+        groups: arm64
+        tests:
+            - apct/bionic/native_test
+            - apct/device_boot_health_check
+    aosp_bonito-userdebug:
+        groups: arm64
+        tests:
+            - apct/bionic/native_test
+            - apct/device_boot_health_check
+    aosp_sargo-userdebug:
+        groups: arm64
+        tests:
+            - apct/bionic/native_test
+            - apct/device_boot_health_check
+    aosp_bramble-userdebug:
+        groups: arm64
+        tests:
+            - apct/bionic/native_test
+            - apct/device_boot_health_check
+    aosp_redfin-userdebug:
+        groups: arm64
+        tests:
+            - apct/bionic/native_test
+            - apct/device_boot_health_check
+    aosp_sunfish-userdebug:
+        groups: arm64
+        tests:
+            - apct/bionic/native_test
+            - apct/device_boot_health_check
+
+
+aosp_kernel-common-android-mainline:
+    kernel_aarch64:
+    kernel_arm_allmodconfig:
+    kernel_cf_kasan_aarch64:
+    kernel_cf_i686:
+    kernel_cf_x86_64:

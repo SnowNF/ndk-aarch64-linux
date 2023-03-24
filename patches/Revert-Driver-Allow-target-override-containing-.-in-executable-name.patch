@@ -1,0 +1,62 @@
+From bcba9ea5d205f7b9978276da3bef9f0e5ad78aaa Mon Sep 17 00:00:00 2001
+From: Yi Kong <yikong@google.com>
+Date: Tue, 28 Feb 2023 12:50:21 +0900
+Subject: [PATCH] Revert "[Driver] Allow target override containing . in
+ executable name"
+
+This reverts commit 0d7eba1aeed853798bd8012f786c305e83a97b67.
+---
+ clang/lib/Driver/ToolChain.cpp      | 9 +--------
+ clang/test/Driver/target-override.c | 5 -----
+ 2 files changed, 1 insertion(+), 13 deletions(-)
+
+diff --git a/clang/lib/Driver/ToolChain.cpp b/clang/lib/Driver/ToolChain.cpp
+index 2dba975a5a8f..b10d5e098a4e 100644
+--- a/clang/lib/Driver/ToolChain.cpp
++++ b/clang/lib/Driver/ToolChain.cpp
+@@ -226,7 +226,7 @@ static const DriverSuffix *FindDriverSuffix(StringRef ProgName, size_t &Pos) {
+ /// Normalize the program name from argv[0] by stripping the file extension if
+ /// present and lower-casing the string on Windows.
+ static std::string normalizeProgramName(llvm::StringRef Argv0) {
+-  std::string ProgName = std::string(llvm::sys::path::filename(Argv0));
++  std::string ProgName = std::string(llvm::sys::path::stem(Argv0));
+   if (is_style_windows(llvm::sys::path::Style::native)) {
+     // Transform to lowercase for case insensitive file systems.
+     std::transform(ProgName.begin(), ProgName.end(), ProgName.begin(),
+@@ -245,13 +245,6 @@ static const DriverSuffix *parseDriverSuffix(StringRef ProgName, size_t &Pos) {
+   // added via -target as implicit first argument.
+   const DriverSuffix *DS = FindDriverSuffix(ProgName, Pos);
+ 
+-  if (!DS && ProgName.endswith(".exe")) {
+-    // Try again after stripping the executable suffix:
+-    // clang++.exe -> clang++
+-    ProgName = ProgName.drop_back(StringRef(".exe").size());
+-    DS = FindDriverSuffix(ProgName, Pos);
+-  }
+-
+   if (!DS) {
+     // Try again after stripping any trailing version number:
+     // clang++3.5 -> clang++
+diff --git a/clang/test/Driver/target-override.c b/clang/test/Driver/target-override.c
+index 2c605ac9a03d..aef89cc9a9dd 100644
+--- a/clang/test/Driver/target-override.c
++++ b/clang/test/Driver/target-override.c
+@@ -3,7 +3,6 @@
+ 
+ // RUN: rm -rf %t && mkdir %t
+ // RUN: ln -s %clang %t/i386-clang
+-// RUN: ln -s %clang %t/x86_64-pc-freebsd13.1-clang
+ 
+ // Check if invocation of "foo-clang" adds option "-target foo".
+ //
+@@ -14,7 +13,3 @@
+ //
+ // RUN: %t/i386-clang -c --target=x86_64 -### %s 2>&1 | FileCheck -check-prefix CHECK-TG2 %s
+ // CHECK-TG2: Target: x86_64
+-
+-/// Check if invocation of "arch-vendor-osX.Y-clang" adds option "-target arch-vendor-osX.Y".
+-// RUN: %t/x86_64-pc-freebsd13.1-clang -c -### %s 2>&1 | FileCheck -check-prefix CHECK-TG3 %s
+-// CHECK-TG3: Target: x86_64-pc-freebsd13.1
+-- 
+2.34.1
+

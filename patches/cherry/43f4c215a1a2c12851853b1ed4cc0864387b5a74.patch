@@ -1,0 +1,31 @@
+From 43f4c215a1a2c12851853b1ed4cc0864387b5a74 Mon Sep 17 00:00:00 2001
+From: Sami Tolvanen <samitolvanen@google.com>
+Date: Wed, 5 Oct 2022 22:07:32 +0000
+Subject: [PATCH] [AArch64][KCFI] Define Size for KCFI_CHECK
+
+Specify the correct size for the KCFI_CHECK pseudo
+instruction, which is lowered into six 4-byte instructions in
+AArch64AsmPrinter::LowerKCFI_CHECK.
+
+Link: https://github.com/ClangBuiltLinux/linux/issues/1730
+---
+ llvm/lib/Target/AArch64/AArch64InstrInfo.td | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/llvm/lib/Target/AArch64/AArch64InstrInfo.td b/llvm/lib/Target/AArch64/AArch64InstrInfo.td
+index 2b2700dd98f3..3b7e5524f6c9 100644
+--- a/llvm/lib/Target/AArch64/AArch64InstrInfo.td
++++ b/llvm/lib/Target/AArch64/AArch64InstrInfo.td
+@@ -1452,7 +1452,8 @@ def : Pat<(AArch64mrs imm:$id),
+ def MOVbaseTLS : Pseudo<(outs GPR64:$dst), (ins),
+                        [(set GPR64:$dst, AArch64threadpointer)]>, Sched<[WriteSys]>;
+ 
+-let Defs = [ X9, X16, X17, NZCV ] in {
++// This gets lowered into a 24-byte instruction sequence
++let Defs = [ X9, X16, X17, NZCV ], Size = 24 in {
+ def KCFI_CHECK : Pseudo<
+   (outs), (ins GPR64:$ptr, i32imm:$type), []>, Sched<[]>;
+ }
+-- 
+2.38.1.273.g43a17bfeac-goog
+

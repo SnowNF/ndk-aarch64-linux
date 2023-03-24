@@ -1,0 +1,60 @@
+From 91520467c83d3265e618910f4daed657f93a8430 Mon Sep 17 00:00:00 2001
+From: Colin Cross <ccross@android.com>
+Date: Thu, 13 Oct 2022 13:19:19 -0700
+Subject: [PATCH] Enable targeting riscv64-linux-android
+
+Add riscv64-linux-android to Linux::getMultiarchTriple, add
+__get_tls for riscv64-linux-android sanitizers, and add RISCV64
+to the list of Android fuzzer targets.
+
+Test: build.py
+Change-Id: I0fdf55125d22d1d3aab9d2199838f25562ffd8a0
+---
+ clang/lib/Driver/ToolChains/Linux.cpp                | 2 ++
+ compiler-rt/cmake/Modules/AllSupportedArchDefs.cmake | 2 +-
+ compiler-rt/lib/sanitizer_common/sanitizer_linux.h   | 3 +++
+ 3 files changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/clang/lib/Driver/ToolChains/Linux.cpp b/clang/lib/Driver/ToolChains/Linux.cpp
+index ceb1a982c3a4..ed8079353ea4 100644
+--- a/clang/lib/Driver/ToolChains/Linux.cpp
++++ b/clang/lib/Driver/ToolChains/Linux.cpp
+@@ -125,6 +125,8 @@ std::string Linux::getMultiarchTriple(const Driver &D,
+   case llvm::Triple::ppc64le:
+     return "powerpc64le-linux-gnu";
+   case llvm::Triple::riscv64:
++    if (IsAndroid)
++      return "riscv64-linux-android";
+     return "riscv64-linux-gnu";
+   case llvm::Triple::sparc:
+     return "sparc-linux-gnu";
+diff --git a/compiler-rt/cmake/Modules/AllSupportedArchDefs.cmake b/compiler-rt/cmake/Modules/AllSupportedArchDefs.cmake
+index a1da35b0ac4b..68a386019070 100644
+--- a/compiler-rt/cmake/Modules/AllSupportedArchDefs.cmake
++++ b/compiler-rt/cmake/Modules/AllSupportedArchDefs.cmake
+@@ -42,7 +42,7 @@ if(OS_NAME MATCHES "Linux")
+ elseif (OS_NAME MATCHES "Windows")
+   set(ALL_FUZZER_SUPPORTED_ARCH ${X86} ${X86_64})
+ elseif(OS_NAME MATCHES "Android")
+-  set(ALL_FUZZER_SUPPORTED_ARCH ${X86} ${X86_64} ${ARM32} ${ARM64})
++  set(ALL_FUZZER_SUPPORTED_ARCH ${X86} ${X86_64} ${ARM32} ${ARM64} ${RISCV64})
+ else()
+   set(ALL_FUZZER_SUPPORTED_ARCH ${X86_64} ${ARM64})
+ endif()
+diff --git a/compiler-rt/lib/sanitizer_common/sanitizer_linux.h b/compiler-rt/lib/sanitizer_common/sanitizer_linux.h
+index 761c57d1b8eb..13c359c7e3a3 100644
+--- a/compiler-rt/lib/sanitizer_common/sanitizer_linux.h
++++ b/compiler-rt/lib/sanitizer_common/sanitizer_linux.h
+@@ -152,6 +152,9 @@ inline void ReleaseMemoryPagesToOSAndZeroFill(uptr beg, uptr end) {
+                "rdhwr   %0,$29\n" \
+                ".set    pop\n" : "=r"(__v)); \
+        __v; })
++#elif defined (__riscv)
++# define __get_tls() \
++    ({ void** __v; __asm__("mv %0, tp" : "=r"(__v)); __v; })
+ #elif defined(__i386__)
+ # define __get_tls() \
+     ({ void** __v; __asm__("movl %%gs:0, %0" : "=r"(__v)); __v; })
+-- 
+2.38.0.135.g90850a2211-goog
+

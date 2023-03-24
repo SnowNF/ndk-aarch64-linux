@@ -1,0 +1,869 @@
+From 781b491bba9d798e53f7784dced3c2be77c81dd4 Mon Sep 17 00:00:00 2001
+From: David Green <david.green@arm.com>
+Date: Sat, 1 Oct 2022 15:40:59 +0100
+Subject: [PATCH] [Clang][AArch64] Support AArch64 target(..) attribute
+ formats.
+
+This adds support under AArch64 for the target("..") attributes. The
+current parsing is very X86-shaped, this patch attempts to bring it line
+with the GCC implementation from
+https://gcc.gnu.org/onlinedocs/gcc/AArch64-Function-Attributes.html#AArch64-Function-Attributes.
+
+The supported formats are:
+- "arch=<arch>" strings, that specify the architecture features for a
+  function as per the -march=arch+feature option.
+- "cpu=<cpu>" strings, that specify the target-cpu and any implied
+  atributes as per the -mcpu=cpu+feature option.
+- "tune=<cpu>" strings, that specify the tune-cpu cpu for a function as
+  per -mtune.
+- "+<feature>", "+no<feature>" enables/disables the specific feature, for
+  compatibility with GCC target attributes.
+- "<feature>", "no-<feature>" enabled/disables the specific feature, for
+  backward compatibility with previous releases.
+
+To do this, the parsing of target attributes has been moved into
+TargetInfo to give the target the opportunity to override the existing
+parsing. The only non-aarch64 change should be a minor alteration to the
+error message, specifying using "CPU" to describe the cpu, not
+"architecture", and the DuplicateArch/Tune from ParsedTargetAttr have
+been combined into a single option.
+
+Differential Revision: https://reviews.llvm.org/D133848
+---
+ clang/docs/ReleaseNotes.rst                   |   8 ++
+ clang/include/clang/AST/Attr.h                |  12 +-
+ clang/include/clang/Basic/Attr.td             |  54 ---------
+ clang/include/clang/Basic/AttrDocs.td         |   9 +-
+ .../clang/Basic/DiagnosticSemaKinds.td        |   2 +-
+ clang/include/clang/Basic/TargetInfo.h        |   3 +
+ clang/lib/AST/ASTContext.cpp                  |   7 +-
+ clang/lib/Basic/TargetInfo.cpp                |  45 ++++++++
+ clang/lib/Basic/Targets/AArch64.cpp           | 103 ++++++++++++++++++
+ clang/lib/Basic/Targets/AArch64.h             |   6 +
+ clang/lib/CodeGen/CodeGenModule.cpp           |  31 +++---
+ clang/lib/CodeGen/TargetInfo.cpp              |  19 ++--
+ clang/lib/Sema/SemaDecl.cpp                   |  25 +++--
+ clang/lib/Sema/SemaDeclAttr.cpp               |  27 ++---
+ clang/test/CodeGen/aarch64-targetattr.c       |  94 ++++++++++++++++
+ clang/test/Sema/attr-target.c                 |  39 ++++++-
+ 16 files changed, 363 insertions(+), 121 deletions(-)
+ create mode 100644 clang/test/CodeGen/aarch64-targetattr.c
+
+diff --git a/clang/docs/ReleaseNotes.rst b/clang/docs/ReleaseNotes.rst
+index 0237a3c4e1b2..c2fedad18e0c 100644
+--- a/clang/docs/ReleaseNotes.rst
++++ b/clang/docs/ReleaseNotes.rst
+@@ -450,6 +450,14 @@ DWARF Support in Clang
+ 
+ Arm and AArch64 Support in Clang
+ --------------------------------
++
++- The target(..) function attributes for AArch64 now accept:
++
++  * ``"arch=<arch>"`` strings, that specify the architecture for a function as per the ``-march`` option.
++  * ``"cpu=<cpu>"`` strings, that specify the cpu for a function as per the ``-mcpu`` option.
++  * ``"tune=<cpu>"`` strings, that specify the tune cpu for a function as per ``-mtune``.
++  * ``"+<feature>"``, ``"+no<feature>"`` enables/disables the specific feature, for compatibility with GCC target attributes.
++  * ``"<feature>"``, ``"no-<feature>"`` enabled/disables the specific feature, for backward compatibility with previous releases.
+ - ``-march`` values for targeting armv2, armv2A, armv3 and armv3M have been removed.
+   Their presence gave the impression that Clang can correctly generate code for
+   them, which it cannot.
+diff --git a/clang/include/clang/AST/Attr.h b/clang/include/clang/AST/Attr.h
+index aff561371fd9..ab64ef39f4b5 100644
+--- a/clang/include/clang/AST/Attr.h
++++ b/clang/include/clang/AST/Attr.h
+@@ -365,17 +365,13 @@ static_assert(sizeof(ParamIdx) == sizeof(ParamIdx::SerialType),
+ /// Contains information gathered from parsing the contents of TargetAttr.
+ struct ParsedTargetAttr {
+   std::vector<std::string> Features;
+-  StringRef Architecture;
++  StringRef CPU;
+   StringRef Tune;
+   StringRef BranchProtection;
+-  bool DuplicateArchitecture = false;
+-  bool DuplicateTune = false;
++  StringRef Duplicate;
+   bool operator ==(const ParsedTargetAttr &Other) const {
+-    return DuplicateArchitecture == Other.DuplicateArchitecture &&
+-           DuplicateTune == Other.DuplicateTune &&
+-           Architecture == Other.Architecture &&
+-           Tune == Other.Tune &&
+-           BranchProtection == Other.BranchProtection &&
++    return Duplicate == Other.Duplicate && CPU == Other.CPU &&
++           Tune == Other.Tune && BranchProtection == Other.BranchProtection &&
+            Features == Other.Features;
+   }
+ };
+diff --git a/clang/include/clang/Basic/Attr.td b/clang/include/clang/Basic/Attr.td
+index 6ace1f081474..1bfe4b6c48a2 100644
+--- a/clang/include/clang/Basic/Attr.td
++++ b/clang/include/clang/Basic/Attr.td
+@@ -2697,10 +2697,6 @@ def Target : InheritableAttr {
+   let Subjects = SubjectList<[Function], ErrorDiag>;
+   let Documentation = [TargetDocs];
+   let AdditionalMembers = [{
+-    ParsedTargetAttr parse() const {
+-      return parse(getFeaturesStr());
+-    }
+-
+     StringRef getArchitecture() const {
+       StringRef Features = getFeaturesStr();
+       if (Features == "default") return {};
+@@ -2734,57 +2730,7 @@ def Target : InheritableAttr {
+       }
+     }
+ 
+-    template<class Compare>
+-    ParsedTargetAttr parse(Compare cmp) const {
+-      ParsedTargetAttr Attrs = parse();
+-      llvm::sort(Attrs.Features, cmp);
+-      return Attrs;
+-    }
+-
+     bool isDefaultVersion() const { return getFeaturesStr() == "default"; }
+-
+-    static ParsedTargetAttr parse(StringRef Features) {
+-      ParsedTargetAttr Ret;
+-      if (Features == "default") return Ret;
+-      SmallVector<StringRef, 1> AttrFeatures;
+-      Features.split(AttrFeatures, ",");
+-
+-      // Grab the various features and prepend a "+" to turn on the feature to
+-      // the backend and add them to our existing set of features.
+-      for (auto &Feature : AttrFeatures) {
+-        // Go ahead and trim whitespace rather than either erroring or
+-        // accepting it weirdly.
+-        Feature = Feature.trim();
+-
+-        // TODO: Support the fpmath option. It will require checking
+-        // overall feature validity for the function with the rest of the
+-        // attributes on the function.
+-        if (Feature.startswith("fpmath="))
+-          continue;
+-
+-        if (Feature.startswith("branch-protection=")) {
+-          Ret.BranchProtection = Feature.split('=').second.trim();
+-          continue;
+-        }
+-
+-        // While we're here iterating check for a different target cpu.
+-        if (Feature.startswith("arch=")) {
+-          if (!Ret.Architecture.empty())
+-            Ret.DuplicateArchitecture = true;
+-          else
+-            Ret.Architecture = Feature.split("=").second.trim();
+-        } else if (Feature.startswith("tune=")) {
+-          if (!Ret.Tune.empty())
+-            Ret.DuplicateTune = true;
+-          else
+-            Ret.Tune = Feature.split("=").second.trim();
+-        } else if (Feature.startswith("no-"))
+-          Ret.Features.push_back("-" + Feature.split("-").second.str());
+-        else
+-          Ret.Features.push_back("+" + Feature.str());
+-      }
+-      return Ret;
+-    }
+   }];
+ }
+ 
+diff --git a/clang/include/clang/Basic/AttrDocs.td b/clang/include/clang/Basic/AttrDocs.td
+index d46578c64348..005264d4f60e 100644
+--- a/clang/include/clang/Basic/AttrDocs.td
++++ b/clang/include/clang/Basic/AttrDocs.td
+@@ -2345,9 +2345,12 @@ for the function.
+ For X86, the attribute also allows ``tune="CPU"`` to optimize the generated
+ code for the given CPU without changing the available instructions.
+ 
+-For AArch64, the attribute also allows the "branch-protection=<args>" option,
+-where the permissible arguments and their effect on code generation are the same
+-as for the command-line option ``-mbranch-protection``.
++For AArch64, ``arch="Arch"`` will set the architecture, similar to the -march
++command line options. ``cpu="CPU"`` can be used to select a specific cpu,
++as per the ``-mcpu`` option, similarly for ``tune=``. The attribute also allows the
++"branch-protection=<args>" option, where the permissible arguments and their
++effect on code generation are the same as for the command-line option
++``-mbranch-protection``.
+ 
+ Example "subtarget features" from the x86 backend include: "mmx", "sse", "sse4.2",
+ "avx", "xop" and largely correspond to the machine specific options handled by
+diff --git a/clang/include/clang/Basic/DiagnosticSemaKinds.td b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+index a3e20d0d683d..f5a30b507b10 100644
+--- a/clang/include/clang/Basic/DiagnosticSemaKinds.td
++++ b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+@@ -3050,7 +3050,7 @@ def warn_unsupported_branch_protection_spec : Warning<
+   "unsupported branch protection specification '%0'">, InGroup<BranchProtection>;
+ 
+ def warn_unsupported_target_attribute
+-    : Warning<"%select{unsupported|duplicate|unknown}0%select{| architecture|"
++    : Warning<"%select{unsupported|duplicate|unknown}0%select{| CPU|"
+               " tune CPU}1 '%2' in the '%select{target|target_clones}3' "
+               "attribute string; '%select{target|target_clones}3' "
+               "attribute ignored">,
+diff --git a/clang/include/clang/Basic/TargetInfo.h b/clang/include/clang/Basic/TargetInfo.h
+index 77ca60b3def9..0b42e21a4158 100644
+--- a/clang/include/clang/Basic/TargetInfo.h
++++ b/clang/include/clang/Basic/TargetInfo.h
+@@ -49,6 +49,7 @@ class DiagnosticsEngine;
+ class LangOptions;
+ class CodeGenOptions;
+ class MacroBuilder;
++class ParsedTargetAttr;
+ 
+ namespace Builtin { struct Info; }
+ 
+@@ -1281,6 +1282,8 @@ public:
+     return isValidCPUName(Name);
+   }
+ 
++  virtual ParsedTargetAttr parseTargetAttr(StringRef Str) const;
++
+   /// brief Determine whether this TargetInfo supports tune in target attribute.
+   virtual bool supportsTargetAttributeTune() const {
+     return false;
+diff --git a/clang/lib/AST/ASTContext.cpp b/clang/lib/AST/ASTContext.cpp
+index f264223891a6..7e9b2febd7d6 100644
+--- a/clang/lib/AST/ASTContext.cpp
++++ b/clang/lib/AST/ASTContext.cpp
+@@ -13255,7 +13255,7 @@ QualType ASTContext::getCorrespondingSignedFixedPointType(QualType Ty) const {
+ ParsedTargetAttr
+ ASTContext::filterFunctionTargetAttrs(const TargetAttr *TD) const {
+   assert(TD != nullptr);
+-  ParsedTargetAttr ParsedAttr = TD->parse();
++  ParsedTargetAttr ParsedAttr = Target->parseTargetAttr(TD->getFeaturesStr());
+ 
+   llvm::erase_if(ParsedAttr.Features, [&](const std::string &Feat) {
+     return !Target->isValidFeatureName(StringRef{Feat}.substr(1));
+@@ -13289,9 +13289,8 @@ void ASTContext::getFunctionFeatureMap(llvm::StringMap<bool> &FeatureMap,
+         Target->getTargetOpts().FeaturesAsWritten.begin(),
+         Target->getTargetOpts().FeaturesAsWritten.end());
+ 
+-    if (ParsedAttr.Architecture != "" &&
+-        Target->isValidCPUName(ParsedAttr.Architecture))
+-      TargetCPU = ParsedAttr.Architecture;
++    if (ParsedAttr.CPU != "" && Target->isValidCPUName(ParsedAttr.CPU))
++      TargetCPU = ParsedAttr.CPU;
+ 
+     // Now populate the feature map, first with the TargetCPU which is either
+     // the default or a new one from the target attribute string. Then we'll use
+diff --git a/clang/lib/Basic/TargetInfo.cpp b/clang/lib/Basic/TargetInfo.cpp
+index d3ed57d75bc5..a9a97c6e752e 100644
+--- a/clang/lib/Basic/TargetInfo.cpp
++++ b/clang/lib/Basic/TargetInfo.cpp
+@@ -11,6 +11,7 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "clang/Basic/TargetInfo.h"
++#include "clang/AST/Attr.h"
+ #include "clang/Basic/AddressSpaces.h"
+ #include "clang/Basic/CharInfo.h"
+ #include "clang/Basic/Diagnostic.h"
+@@ -507,6 +508,50 @@ bool TargetInfo::initFeatureMap(
+   return true;
+ }
+ 
++ParsedTargetAttr TargetInfo::parseTargetAttr(StringRef Features) const {
++  ParsedTargetAttr Ret;
++  if (Features == "default")
++    return Ret;
++  SmallVector<StringRef, 1> AttrFeatures;
++  Features.split(AttrFeatures, ",");
++
++  // Grab the various features and prepend a "+" to turn on the feature to
++  // the backend and add them to our existing set of features.
++  for (auto &Feature : AttrFeatures) {
++    // Go ahead and trim whitespace rather than either erroring or
++    // accepting it weirdly.
++    Feature = Feature.trim();
++
++    // TODO: Support the fpmath option. It will require checking
++    // overall feature validity for the function with the rest of the
++    // attributes on the function.
++    if (Feature.startswith("fpmath="))
++      continue;
++
++    if (Feature.startswith("branch-protection=")) {
++      Ret.BranchProtection = Feature.split('=').second.trim();
++      continue;
++    }
++
++    // While we're here iterating check for a different target cpu.
++    if (Feature.startswith("arch=")) {
++      if (!Ret.CPU.empty())
++        Ret.Duplicate = "arch=";
++      else
++        Ret.CPU = Feature.split("=").second.trim();
++    } else if (Feature.startswith("tune=")) {
++      if (!Ret.Tune.empty())
++        Ret.Duplicate = "tune=";
++      else
++        Ret.Tune = Feature.split("=").second.trim();
++    } else if (Feature.startswith("no-"))
++      Ret.Features.push_back("-" + Feature.split("-").second.str());
++    else
++      Ret.Features.push_back("+" + Feature.str());
++  }
++  return Ret;
++}
++
+ TargetInfo::CallingConvKind
+ TargetInfo::getCallingConvKind(bool ClangABICompat4) const {
+   if (getCXXABI() != TargetCXXABI::Microsoft &&
+diff --git a/clang/lib/Basic/Targets/AArch64.cpp b/clang/lib/Basic/Targets/AArch64.cpp
+index 3f6917058ec7..a18e00f6f4f3 100644
+--- a/clang/lib/Basic/Targets/AArch64.cpp
++++ b/clang/lib/Basic/Targets/AArch64.cpp
+@@ -11,6 +11,7 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "AArch64.h"
++#include "clang/AST/Attr.h"
+ #include "clang/Basic/LangOptions.h"
+ #include "clang/Basic/TargetBuiltins.h"
+ #include "clang/Basic/TargetInfo.h"
+@@ -699,6 +700,108 @@ bool AArch64TargetInfo::handleTargetFeatures(std::vector<std::string> &Features,
+   return true;
+ }
+ 
++bool AArch64TargetInfo::initFeatureMap(
++    llvm::StringMap<bool> &Features, DiagnosticsEngine &Diags, StringRef CPU,
++    const std::vector<std::string> &FeaturesVec) const {
++  // Parse the CPU and add any implied features.
++  llvm::AArch64::ArchKind Arch = llvm::AArch64::parseCPUArch(CPU);
++  if (Arch != llvm::AArch64::ArchKind::INVALID) {
++    uint64_t Exts = llvm::AArch64::getDefaultExtensions(CPU, Arch);
++    std::vector<StringRef> CPUFeats;
++    llvm::AArch64::getExtensionFeatures(Exts, CPUFeats);
++    for (auto F : CPUFeats) {
++      assert((F[0] == '+' || F[0] == '-') && "Expected +/- in target feature!");
++      setFeatureEnabled(Features, F.drop_front(), F[0] == '+');
++    }
++  }
++
++  return TargetInfo::initFeatureMap(Features, Diags, CPU, FeaturesVec);
++}
++
++// Parse AArch64 Target attributes, which are a comma separated list of:
++//  "arch=<arch>" - parsed to features as per -march=..
++//  "cpu=<cpu>" - parsed to features as per -mcpu=.., with CPU set to <cpu>
++//  "tune=<cpu>" - TuneCPU set to <cpu>
++//  "feature", "no-feature" - Add (or remove) feature.
++//  "+feature", "+nofeature" - Add (or remove) feature.
++ParsedTargetAttr AArch64TargetInfo::parseTargetAttr(StringRef Features) const {
++  ParsedTargetAttr Ret;
++  if (Features == "default")
++    return Ret;
++  SmallVector<StringRef, 1> AttrFeatures;
++  Features.split(AttrFeatures, ",");
++  bool FoundArch = false;
++
++  auto SplitAndAddFeatures = [](StringRef FeatString,
++                                std::vector<std::string> &Features) {
++    SmallVector<StringRef, 8> SplitFeatures;
++    FeatString.split(SplitFeatures, StringRef("+"), -1, false);
++    for (StringRef Feature : SplitFeatures) {
++      StringRef FeatureName = llvm::AArch64::getArchExtFeature(Feature);
++      if (!FeatureName.empty())
++        Features.push_back(FeatureName.str());
++      else
++        // Pushing the original feature string to give a sema error later on
++        // when they get checked.
++        Features.push_back(Feature.str());
++    }
++  };
++
++  for (auto &Feature : AttrFeatures) {
++    Feature = Feature.trim();
++    if (Feature.startswith("fpmath="))
++      continue;
++
++    if (Feature.startswith("branch-protection=")) {
++      Ret.BranchProtection = Feature.split('=').second.trim();
++      continue;
++    }
++
++    if (Feature.startswith("arch=")) {
++      if (FoundArch)
++        Ret.Duplicate = "arch=";
++      FoundArch = true;
++      std::pair<StringRef, StringRef> Split =
++          Feature.split("=").second.trim().split("+");
++      llvm::AArch64::ArchKind ArchKind = llvm::AArch64::parseArch(Split.first);
++
++      // Parse the architecture version, adding the required features to
++      // Ret.Features.
++      std::vector<StringRef> FeatureStrs;
++      if (ArchKind == llvm::AArch64::ArchKind::INVALID ||
++          !llvm::AArch64::getArchFeatures(ArchKind, FeatureStrs))
++        continue;
++      for (auto R : FeatureStrs)
++        Ret.Features.push_back(R.str());
++      // Add any extra features, after the +
++      SplitAndAddFeatures(Split.second, Ret.Features);
++    } else if (Feature.startswith("cpu=")) {
++      if (!Ret.CPU.empty())
++        Ret.Duplicate = "cpu=";
++      else {
++        // Split the cpu string into "cpu=", "cortex-a710" and any remaining
++        // "+feat" features.
++        std::pair<StringRef, StringRef> Split =
++            Feature.split("=").second.trim().split("+");
++        Ret.CPU = Split.first;
++        SplitAndAddFeatures(Split.second, Ret.Features);
++      }
++    } else if (Feature.startswith("tune=")) {
++      if (!Ret.Tune.empty())
++        Ret.Duplicate = "tune=";
++      else
++        Ret.Tune = Feature.split("=").second.trim();
++    } else if (Feature.startswith("no-"))
++      Ret.Features.push_back("-" + Feature.split("-").second.str());
++    else if (Feature.startswith("+")) {
++      SplitAndAddFeatures(Feature, Ret.Features);
++    }
++    else
++      Ret.Features.push_back("+" + Feature.str());
++  }
++  return Ret;
++}
++
+ bool AArch64TargetInfo::hasBFloat16Type() const {
+   return true;
+ }
+diff --git a/clang/lib/Basic/Targets/AArch64.h b/clang/lib/Basic/Targets/AArch64.h
+index 302cab409745..347ac0f343bb 100644
+--- a/clang/lib/Basic/Targets/AArch64.h
++++ b/clang/lib/Basic/Targets/AArch64.h
+@@ -118,6 +118,12 @@ public:
+                          bool Enabled) const override;
+   bool handleTargetFeatures(std::vector<std::string> &Features,
+                             DiagnosticsEngine &Diags) override;
++  bool
++  initFeatureMap(llvm::StringMap<bool> &Features, DiagnosticsEngine &Diags,
++                 StringRef CPU,
++                 const std::vector<std::string> &FeaturesVec) const override;
++  ParsedTargetAttr parseTargetAttr(StringRef Str) const override;
++  bool supportsTargetAttributeTune() const override { return true; }
+ 
+   bool hasBFloat16Type() const override;
+ 
+diff --git a/clang/lib/CodeGen/CodeGenModule.cpp b/clang/lib/CodeGen/CodeGenModule.cpp
+index 92920dae8111..9c96195d85cb 100644
+--- a/clang/lib/CodeGen/CodeGenModule.cpp
++++ b/clang/lib/CodeGen/CodeGenModule.cpp
+@@ -1333,21 +1333,21 @@ static void AppendTargetMangling(const CodeGenModule &CGM,
+ 
+   Out << '.';
+   const TargetInfo &Target = CGM.getTarget();
+-  ParsedTargetAttr Info =
+-      Attr->parse([&Target](StringRef LHS, StringRef RHS) {
+-        // Multiversioning doesn't allow "no-${feature}", so we can
+-        // only have "+" prefixes here.
+-        assert(LHS.startswith("+") && RHS.startswith("+") &&
+-               "Features should always have a prefix.");
+-        return Target.multiVersionSortPriority(LHS.substr(1)) >
+-               Target.multiVersionSortPriority(RHS.substr(1));
+-      });
++  ParsedTargetAttr Info = Target.parseTargetAttr(Attr->getFeaturesStr());
++  llvm::sort(Info.Features, [&Target](StringRef LHS, StringRef RHS) {
++    // Multiversioning doesn't allow "no-${feature}", so we can
++    // only have "+" prefixes here.
++    assert(LHS.startswith("+") && RHS.startswith("+") &&
++           "Features should always have a prefix.");
++    return Target.multiVersionSortPriority(LHS.substr(1)) >
++           Target.multiVersionSortPriority(RHS.substr(1));
++  });
+ 
+   bool IsFirst = true;
+ 
+-  if (!Info.Architecture.empty()) {
++  if (!Info.CPU.empty()) {
+     IsFirst = false;
+-    Out << "arch_" << Info.Architecture;
++    Out << "arch_" << Info.CPU;
+   }
+ 
+   for (StringRef Feat : Info.Features) {
+@@ -2171,10 +2171,11 @@ bool CodeGenModule::GetCPUAndFeaturesAttributes(GlobalDecl GD,
+     // get and parse the target attribute so we can get the cpu for
+     // the function.
+     if (TD) {
+-      ParsedTargetAttr ParsedAttr = TD->parse();
+-      if (!ParsedAttr.Architecture.empty() &&
+-          getTarget().isValidCPUName(ParsedAttr.Architecture)) {
+-        TargetCPU = ParsedAttr.Architecture;
++      ParsedTargetAttr ParsedAttr =
++          Target.parseTargetAttr(TD->getFeaturesStr());
++      if (!ParsedAttr.CPU.empty() &&
++          getTarget().isValidCPUName(ParsedAttr.CPU)) {
++        TargetCPU = ParsedAttr.CPU;
+         TuneCPU = ""; // Clear the tune CPU.
+       }
+       if (!ParsedAttr.Tune.empty() &&
+diff --git a/clang/lib/CodeGen/TargetInfo.cpp b/clang/lib/CodeGen/TargetInfo.cpp
+index a16c3ad6ffa8..02bcf8a19bbf 100644
+--- a/clang/lib/CodeGen/TargetInfo.cpp
++++ b/clang/lib/CodeGen/TargetInfo.cpp
+@@ -5577,14 +5577,15 @@ public:
+     if (TA == nullptr)
+       return;
+ 
+-    ParsedTargetAttr Attr = TA->parse();
++    ParsedTargetAttr Attr =
++        CGM.getTarget().parseTargetAttr(TA->getFeaturesStr());
+     if (Attr.BranchProtection.empty())
+       return;
+ 
+     TargetInfo::BranchProtectionInfo BPI;
+     StringRef Error;
+-    (void)CGM.getTarget().validateBranchProtection(
+-        Attr.BranchProtection, Attr.Architecture, BPI, Error);
++    (void)CGM.getTarget().validateBranchProtection(Attr.BranchProtection,
++                                                   Attr.CPU, BPI, Error);
+     assert(Error.empty());
+ 
+     auto *Fn = cast<llvm::Function>(GV);
+@@ -6405,13 +6406,13 @@ public:
+     auto *Fn = cast<llvm::Function>(GV);
+ 
+     if (const auto *TA = FD->getAttr<TargetAttr>()) {
+-      ParsedTargetAttr Attr = TA->parse();
++      ParsedTargetAttr Attr =
++          CGM.getTarget().parseTargetAttr(TA->getFeaturesStr());
+       if (!Attr.BranchProtection.empty()) {
+         TargetInfo::BranchProtectionInfo BPI;
+         StringRef DiagMsg;
+-        StringRef Arch = Attr.Architecture.empty()
+-                             ? CGM.getTarget().getTargetOpts().CPU
+-                             : Attr.Architecture;
++        StringRef Arch =
++            Attr.CPU.empty() ? CGM.getTarget().getTargetOpts().CPU : Attr.CPU;
+         if (!CGM.getTarget().validateBranchProtection(Attr.BranchProtection,
+                                                       Arch, BPI, DiagMsg)) {
+           CGM.getDiags().Report(
+@@ -6434,11 +6435,11 @@ public:
+         // If the Branch Protection attribute is missing, validate the target
+         // Architecture attribute against Branch Protection command line
+         // settings.
+-        if (!CGM.getTarget().isBranchProtectionSupportedArch(Attr.Architecture))
++        if (!CGM.getTarget().isBranchProtectionSupportedArch(Attr.CPU))
+           CGM.getDiags().Report(
+               D->getLocation(),
+               diag::warn_target_unsupported_branch_protection_attribute)
+-              << Attr.Architecture;
++              << Attr.CPU;
+       }
+     }
+ 
+diff --git a/clang/lib/Sema/SemaDecl.cpp b/clang/lib/Sema/SemaDecl.cpp
+index 6c7df6861188..8e7a989219da 100644
+--- a/clang/lib/Sema/SemaDecl.cpp
++++ b/clang/lib/Sema/SemaDecl.cpp
+@@ -10717,14 +10717,14 @@ bool Sema::shouldLinkDependentDeclWithPrevious(Decl *D, Decl *PrevDecl) {
+ static bool CheckMultiVersionValue(Sema &S, const FunctionDecl *FD) {
+   const auto *TA = FD->getAttr<TargetAttr>();
+   assert(TA && "MultiVersion Candidate requires a target attribute");
+-  ParsedTargetAttr ParseInfo = TA->parse();
++  ParsedTargetAttr ParseInfo =
++      S.getASTContext().getTargetInfo().parseTargetAttr(TA->getFeaturesStr());
+   const TargetInfo &TargetInfo = S.Context.getTargetInfo();
+   enum ErrType { Feature = 0, Architecture = 1 };
+ 
+-  if (!ParseInfo.Architecture.empty() &&
+-      !TargetInfo.validateCpuIs(ParseInfo.Architecture)) {
++  if (!ParseInfo.CPU.empty() && !TargetInfo.validateCpuIs(ParseInfo.CPU)) {
+     S.Diag(FD->getLocation(), diag::err_bad_multiversion_option)
+-        << Architecture << ParseInfo.Architecture;
++        << Architecture << ParseInfo.CPU;
+     return true;
+   }
+ 
+@@ -10997,7 +10997,9 @@ static bool CheckTargetCausesMultiVersioning(
+     Sema &S, FunctionDecl *OldFD, FunctionDecl *NewFD, const TargetAttr *NewTA,
+     bool &Redeclaration, NamedDecl *&OldDecl, LookupResult &Previous) {
+   const auto *OldTA = OldFD->getAttr<TargetAttr>();
+-  ParsedTargetAttr NewParsed = NewTA->parse();
++  ParsedTargetAttr NewParsed =
++      S.getASTContext().getTargetInfo().parseTargetAttr(
++          NewTA->getFeaturesStr());
+   // Sort order doesn't matter, it just needs to be consistent.
+   llvm::sort(NewParsed.Features);
+ 
+@@ -11034,7 +11036,10 @@ static bool CheckTargetCausesMultiVersioning(
+     return true;
+   }
+ 
+-  ParsedTargetAttr OldParsed = OldTA->parse(std::less<std::string>());
++  ParsedTargetAttr OldParsed =
++      S.getASTContext().getTargetInfo().parseTargetAttr(
++          OldTA->getFeaturesStr());
++  llvm::sort(OldParsed.Features);
+ 
+   if (OldParsed == NewParsed) {
+     S.Diag(NewFD->getLocation(), diag::err_multiversion_duplicate);
+@@ -11097,7 +11102,8 @@ static bool CheckMultiVersionAdditionalDecl(
+ 
+   ParsedTargetAttr NewParsed;
+   if (NewTA) {
+-    NewParsed = NewTA->parse();
++    NewParsed = S.getASTContext().getTargetInfo().parseTargetAttr(
++        NewTA->getFeaturesStr());
+     llvm::sort(NewParsed.Features);
+   }
+ 
+@@ -11131,7 +11137,10 @@ static bool CheckMultiVersionAdditionalDecl(
+         return false;
+       }
+ 
+-      ParsedTargetAttr CurParsed = CurTA->parse(std::less<std::string>());
++      ParsedTargetAttr CurParsed =
++          S.getASTContext().getTargetInfo().parseTargetAttr(
++              CurTA->getFeaturesStr());
++      llvm::sort(CurParsed.Features);
+       if (CurParsed == NewParsed) {
+         S.Diag(NewFD->getLocation(), diag::err_multiversion_duplicate);
+         S.Diag(CurFD->getLocation(), diag::note_previous_declaration);
+diff --git a/clang/lib/Sema/SemaDeclAttr.cpp b/clang/lib/Sema/SemaDeclAttr.cpp
+index cce7029cf8e3..51d22d2d52a4 100644
+--- a/clang/lib/Sema/SemaDeclAttr.cpp
++++ b/clang/lib/Sema/SemaDeclAttr.cpp
+@@ -3394,7 +3394,7 @@ static void handleCodeSegAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+ // handled later in the process, once we know how many exist.
+ bool Sema::checkTargetAttr(SourceLocation LiteralLoc, StringRef AttrStr) {
+   enum FirstParam { Unsupported, Duplicate, Unknown };
+-  enum SecondParam { None, Architecture, Tune };
++  enum SecondParam { None, CPU, Tune };
+   enum ThirdParam { Target, TargetClones };
+   if (AttrStr.contains("fpmath="))
+     return Diag(LiteralLoc, diag::warn_unsupported_target_attribute)
+@@ -3406,24 +3406,22 @@ bool Sema::checkTargetAttr(SourceLocation LiteralLoc, StringRef AttrStr) {
+     return Diag(LiteralLoc, diag::warn_unsupported_target_attribute)
+            << Unsupported << None << "tune=" << Target;
+ 
+-  ParsedTargetAttr ParsedAttrs = TargetAttr::parse(AttrStr);
++  ParsedTargetAttr ParsedAttrs =
++      Context.getTargetInfo().parseTargetAttr(AttrStr);
+ 
+-  if (!ParsedAttrs.Architecture.empty() &&
+-      !Context.getTargetInfo().isValidCPUName(ParsedAttrs.Architecture))
++  if (!ParsedAttrs.CPU.empty() &&
++      !Context.getTargetInfo().isValidCPUName(ParsedAttrs.CPU))
+     return Diag(LiteralLoc, diag::warn_unsupported_target_attribute)
+-           << Unknown << Architecture << ParsedAttrs.Architecture << Target;
++           << Unknown << CPU << ParsedAttrs.CPU << Target;
+ 
+   if (!ParsedAttrs.Tune.empty() &&
+       !Context.getTargetInfo().isValidCPUName(ParsedAttrs.Tune))
+     return Diag(LiteralLoc, diag::warn_unsupported_target_attribute)
+            << Unknown << Tune << ParsedAttrs.Tune << Target;
+ 
+-  if (ParsedAttrs.DuplicateArchitecture)
++  if (ParsedAttrs.Duplicate != "")
+     return Diag(LiteralLoc, diag::warn_unsupported_target_attribute)
+-           << Duplicate << None << "arch=" << Target;
+-  if (ParsedAttrs.DuplicateTune)
+-    return Diag(LiteralLoc, diag::warn_unsupported_target_attribute)
+-           << Duplicate << None << "tune=" << Target;
++           << Duplicate << None << ParsedAttrs.Duplicate << Target;
+ 
+   for (const auto &Feature : ParsedAttrs.Features) {
+     auto CurFeature = StringRef(Feature).drop_front(); // remove + or -.
+@@ -3437,8 +3435,7 @@ bool Sema::checkTargetAttr(SourceLocation LiteralLoc, StringRef AttrStr) {
+   if (ParsedAttrs.BranchProtection.empty())
+     return false;
+   if (!Context.getTargetInfo().validateBranchProtection(
+-          ParsedAttrs.BranchProtection, ParsedAttrs.Architecture, BPI,
+-          DiagMsg)) {
++          ParsedAttrs.BranchProtection, ParsedAttrs.CPU, BPI, DiagMsg)) {
+     if (DiagMsg.empty())
+       return Diag(LiteralLoc, diag::warn_unsupported_target_attribute)
+              << Unsupported << None << "branch-protection" << Target;
+@@ -3467,7 +3464,7 @@ bool Sema::checkTargetClonesAttrString(SourceLocation LiteralLoc, StringRef Str,
+                                        bool &HasDefault, bool &HasCommas,
+                                        SmallVectorImpl<StringRef> &Strings) {
+   enum FirstParam { Unsupported, Duplicate, Unknown };
+-  enum SecondParam { None, Architecture, Tune };
++  enum SecondParam { None, CPU, Tune };
+   enum ThirdParam { Target, TargetClones };
+   HasCommas = HasCommas || Str.contains(',');
+   // Warn on empty at the beginning of a string.
+@@ -3492,8 +3489,8 @@ bool Sema::checkTargetClonesAttrString(SourceLocation LiteralLoc, StringRef Str,
+       if (!Context.getTargetInfo().isValidCPUName(
+               Cur.drop_front(sizeof("arch=") - 1)))
+         return Diag(CurLoc, diag::warn_unsupported_target_attribute)
+-               << Unsupported << Architecture
+-               << Cur.drop_front(sizeof("arch=") - 1) << TargetClones;
++               << Unsupported << CPU << Cur.drop_front(sizeof("arch=") - 1)
++               << TargetClones;
+     } else if (Cur == "default") {
+       DefaultIsDupe = HasDefault;
+       HasDefault = true;
+diff --git a/clang/test/CodeGen/aarch64-targetattr.c b/clang/test/CodeGen/aarch64-targetattr.c
+new file mode 100644
+index 000000000000..0f1f7da54625
+--- /dev/null
++++ b/clang/test/CodeGen/aarch64-targetattr.c
+@@ -0,0 +1,94 @@
++// NOTE: Assertions have been autogenerated by utils/update_cc_test_checks.py
++// RUN: %clang_cc1 -triple aarch64-eabi -S -emit-llvm %s -o - | FileCheck %s
++
++// CHECK-LABEL: @v82() #0
++__attribute__((target("arch=armv8.2-a")))
++void v82() {}
++// CHECK-LABEL: @v82sve() #1
++__attribute__((target("arch=armv8.2-a+sve")))
++void v82sve() {}
++// CHECK-LABEL: @v82sve2() #2
++__attribute__((target("arch=armv8.2-a+sve2")))
++void v82sve2() {}
++// CHECK-LABEL: @v82svesve2() #3
++__attribute__((target("arch=armv8.2-a+sve+sve2")))
++void v82svesve2() {}
++// CHECK-LABEL: @v86sve2() #4
++__attribute__((target("arch=armv8.6-a+sve2")))
++void v86sve2() {}
++
++// CHECK-LABEL: @a710() #5
++__attribute__((target("cpu=cortex-a710")))
++void a710() {}
++// CHECK-LABEL: @tunea710() #6
++__attribute__((target("tune=cortex-a710")))
++void tunea710() {}
++// CHECK-LABEL: @generic() #7
++__attribute__((target("cpu=generic")))
++void generic() {}
++// CHECK-LABEL: @tune() #8
++__attribute__((target("tune=generic")))
++void tune() {}
++
++// CHECK-LABEL: @n1tunea710() #9
++__attribute__((target("cpu=neoverse-n1,tune=cortex-a710")))
++void n1tunea710() {}
++// CHECK-LABEL: @svetunea710() #10
++__attribute__((target("sve,tune=cortex-a710")))
++void svetunea710() {}
++// CHECK-LABEL: @plussvetunea710() #10
++__attribute__((target("+sve,tune=cortex-a710")))
++void plussvetunea710() {}
++// CHECK-LABEL: @v1plussve2() #11
++__attribute__((target("cpu=neoverse-v1,+sve2")))
++void v1plussve2() {}
++// CHECK-LABEL: @v1sve2() #11
++__attribute__((target("cpu=neoverse-v1+sve2")))
++void v1sve2() {}
++// CHECK-LABEL: @v1minussve() #12
++__attribute__((target("cpu=neoverse-v1,+nosve")))
++void v1minussve() {}
++// CHECK-LABEL: @v1nosve() #12
++__attribute__((target("cpu=neoverse-v1,no-sve")))
++void v1nosve() {}
++// CHECK-LABEL: @v1msve() #12
++__attribute__((target("cpu=neoverse-v1+nosve")))
++void v1msve() {}
++
++// CHECK-LABEL: @plussve() #13
++__attribute__((target("+sve")))
++void plussve() {}
++// CHECK-LABEL: @plussveplussve2() #14
++__attribute__((target("+sve+nosve2")))
++void plussveplussve2() {}
++// CHECK-LABEL: @plussveminusnosve2() #14
++__attribute__((target("sve,no-sve2")))
++void plussveminusnosve2() {}
++// CHECK-LABEL: @plusfp16() #15
++__attribute__((target("+fp16")))
++void plusfp16() {}
++
++// CHECK-LABEL: @all() #16
++__attribute__((target("cpu=neoverse-n1,tune=cortex-a710,arch=armv8.6-a+sve2")))
++void all() {}
++// CHECK-LABEL: @allplusbranchprotection() #17
++__attribute__((target("cpu=neoverse-n1,tune=cortex-a710,arch=armv8.6-a+sve2,branch-protection=standard")))
++void allplusbranchprotection() {}
++
++// CHECK: attributes #0 = { {{.*}} "target-features"="+v8.1a,+v8.2a,+v8a" }
++// CHECK: attributes #1 = { {{.*}} "target-features"="+sve,+v8.1a,+v8.2a,+v8a" }
++// CHECK: attributes #2 = { {{.*}} "target-features"="+sve2,+v8.1a,+v8.2a,+v8a" }
++// CHECK: attributes #4 = { {{.*}} "target-features"="+sve2,+v8.1a,+v8.2a,+v8.3a,+v8.4a,+v8.5a,+v8.6a,+v8a" }
++// CHECK: attributes #5 = { {{.*}} "target-cpu"="cortex-a710" "target-features"="+bf16,+crc,+dotprod,+flagm,+fp-armv8,+fp16fml,+i8mm,+lse,+mte,+neon,+pauth,+ras,+rcpc,+rdm,+sb,+sve,+sve2,+sve2-bitperm" }
++// CHECK: attributes #6 = { {{.*}} "tune-cpu"="cortex-a710" }
++// CHECK: attributes #7 = { {{.*}} "target-cpu"="generic" }
++// CHECK: attributes #8 = { {{.*}} "tune-cpu"="generic" }
++// CHECK: attributes #9 = { {{.*}} "target-cpu"="neoverse-n1" "target-features"="+crc,+crypto,+dotprod,+fp-armv8,+fullfp16,+lse,+neon,+ras,+rcpc,+rdm,+spe,+ssbs" "tune-cpu"="cortex-a710" }
++// CHECK: attributes #10 = { {{.*}} "target-features"="+sve" "tune-cpu"="cortex-a710" }
++// CHECK: attributes #11 = { {{.*}} "target-cpu"="neoverse-v1" "target-features"="+bf16,+crc,+crypto,+dotprod,+fp-armv8,+fp16fml,+fullfp16,+i8mm,+lse,+neon,+rand,+ras,+rcpc,+rdm,+spe,+ssbs,+sve,+sve2" }
++// CHECK: attributes #12 = { {{.*}} "target-cpu"="neoverse-v1" "target-features"="+bf16,+crc,+crypto,+dotprod,+fp-armv8,+fp16fml,+fullfp16,+i8mm,+lse,+neon,+rand,+ras,+rcpc,+rdm,+spe,+ssbs,-sve" }
++// CHECK: attributes #13 = { {{.*}} "target-features"="+sve" }
++// CHECK: attributes #14 = { {{.*}} "target-features"="+sve,-sve2" }
++// CHECK: attributes #15 = { {{.*}} "target-features"="+fullfp16" }
++// CHECK: attributes #16 = { {{.*}} "target-cpu"="neoverse-n1" "target-features"="+crc,+crypto,+dotprod,+fp-armv8,+fullfp16,+lse,+neon,+ras,+rcpc,+rdm,+spe,+ssbs,+sve2,+v8.1a,+v8.2a,+v8.3a,+v8.4a,+v8.5a,+v8.6a,+v8a" "tune-cpu"="cortex-a710" }
++// CHECK: attributes #17 = { {{.*}} "branch-target-enforcement"="true" {{.*}} "target-cpu"="neoverse-n1" "target-features"="+crc,+crypto,+dotprod,+fp-armv8,+fullfp16,+lse,+neon,+ras,+rcpc,+rdm,+spe,+ssbs,+sve2,+v8.1a,+v8.2a,+v8.3a,+v8.4a,+v8.5a,+v8.6a,+v8a" "tune-cpu"="cortex-a710" }
+diff --git a/clang/test/Sema/attr-target.c b/clang/test/Sema/attr-target.c
+index 4318183e0e3c..653550757bda 100644
+--- a/clang/test/Sema/attr-target.c
++++ b/clang/test/Sema/attr-target.c
+@@ -1,5 +1,6 @@
+-// RUN: %clang_cc1 -triple x86_64-linux-gnu  -fsyntax-only -verify %s
+-// RUN: %clang_cc1 -triple aarch64-linux-gnu  -fsyntax-only -verify %s
++// RUN: %clang_cc1 -triple x86_64-linux-gnu  -fsyntax-only -verify -std=c2x %s
++// RUN: %clang_cc1 -triple aarch64-linux-gnu  -fsyntax-only -verify -std=c2x %s
++// RUN: %clang_cc1 -triple arm-linux-gnu  -fsyntax-only -verify -std=c2x %s
+ 
+ #ifdef __x86_64__
+ 
+@@ -10,13 +11,13 @@ int __attribute__((target())) bar(void) { return 4; }
+ int __attribute__((target("tune=sandybridge"))) baz(void) { return 4; }
+ //expected-warning@+1 {{unsupported 'fpmath=' in the 'target' attribute string; 'target' attribute ignored}}
+ int __attribute__((target("fpmath=387"))) walrus(void) { return 4; }
+-//expected-warning@+1 {{unknown architecture 'hiss' in the 'target' attribute string; 'target' attribute ignored}}
++//expected-warning@+1 {{unknown CPU 'hiss' in the 'target' attribute string; 'target' attribute ignored}}
+ int __attribute__((target("avx,sse4.2,arch=hiss"))) meow(void) {  return 4; }
+ //expected-warning@+1 {{unsupported 'woof' in the 'target' attribute string; 'target' attribute ignored}}
+ int __attribute__((target("woof"))) bark(void) {  return 4; }
+ // no warning, same as saying 'nothing'.
+ int __attribute__((target("arch="))) turtle(void) { return 4; }
+-//expected-warning@+1 {{unknown architecture 'hiss' in the 'target' attribute string; 'target' attribute ignored}}
++//expected-warning@+1 {{unknown CPU 'hiss' in the 'target' attribute string; 'target' attribute ignored}}
+ int __attribute__((target("arch=hiss,arch=woof"))) pine_tree(void) { return 4; }
+ //expected-warning@+1 {{duplicate 'arch=' in the 'target' attribute string; 'target' attribute ignored}}
+ int __attribute__((target("arch=ivybridge,arch=haswell"))) oak_tree(void) { return 4; }
+@@ -25,6 +26,36 @@ int __attribute__((target("branch-protection=none"))) birch_tree(void) { return
+ //expected-warning@+1 {{unknown tune CPU 'hiss' in the 'target' attribute string; 'target' attribute ignored}}
+ int __attribute__((target("tune=hiss,tune=woof"))) apple_tree(void) { return 4; }
+ 
++#elifdef __aarch64__
++
++int __attribute__((target("sve,arch=armv8-a"))) foo(void) { return 4; }
++//expected-error@+1 {{'target' attribute takes one argument}}
++int __attribute__((target())) bar(void) { return 4; }
++// no warning, tune is supported for aarch64
++int __attribute__((target("tune=cortex-a710"))) baz(void) { return 4; }
++//expected-warning@+1 {{unsupported 'fpmath=' in the 'target' attribute string; 'target' attribute ignored}}
++int __attribute__((target("fpmath=387"))) walrus(void) { return 4; }
++//expected-warning@+1 {{unknown CPU 'hiss' in the 'target' attribute string; 'target' attribute ignored}}
++int __attribute__((target("sve,cpu=hiss"))) meow(void) {  return 4; }
++// FIXME: We currently have no implementation of isValidFeatureName, so this is not noticed as an error.
++int __attribute__((target("woof"))) bark(void) {  return 4; }
++// FIXME: Same
++int __attribute__((target("arch=armv8-a+woof"))) buff(void) {  return 4; }
++// FIXME: Same
++int __attribute__((target("+noway"))) noway(void) {  return 4; }
++// no warning, same as saying 'nothing'.
++int __attribute__((target("arch="))) turtle(void) { return 4; }
++//expected-warning@+1 {{unknown CPU 'hiss' in the 'target' attribute string; 'target' attribute ignored}}
++int __attribute__((target("cpu=hiss,cpu=woof"))) pine_tree(void) { return 4; }
++//expected-warning@+1 {{duplicate 'arch=' in the 'target' attribute string; 'target' attribute ignored}}
++int __attribute__((target("arch=armv8.1-a,arch=armv8-a"))) oak_tree(void) { return 4; }
++//expected-warning@+1 {{duplicate 'cpu=' in the 'target' attribute string; 'target' attribute ignored}}
++int __attribute__((target("cpu=cortex-a710,cpu=neoverse-n2"))) apple_tree(void) { return 4; }
++//expected-warning@+1 {{duplicate 'tune=' in the 'target' attribute string; 'target' attribute ignored}}
++int __attribute__((target("tune=cortex-a710,tune=neoverse-n2"))) pear_tree(void) { return 4; }
++// no warning - branch-protection should work on aarch64
++int __attribute__((target("branch-protection=none"))) birch_tree(void) { return 5; }
++
+ #else
+ 
+ // tune is not supported by other targets.
+-- 
+2.38.0.135.g90850a2211-goog
+

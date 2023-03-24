@@ -1,0 +1,29 @@
+From 7ec7f9941b5cf100caa99397129f16d22e92ae44 Mon Sep 17 00:00:00 2001
+From: Chih-Hung Hsieh <chh@google.com>
+Date: Mon, 1 Aug 2022 18:31:18 -0700
+Subject: [PATCH] undef FS macro for Android x86_64
+
+* Android bionic x86_64 .h file defines the CS macro.
+  Some LLVM files have included the bionic .h file
+  before using CS as a parameter or variable.
+---
+ llvm/include/llvm/ADT/SmallVector.h | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/llvm/include/llvm/ADT/SmallVector.h b/llvm/include/llvm/ADT/SmallVector.h
+index e34702bdbb3c..c1846f3a0ceb 100644
+--- a/llvm/include/llvm/ADT/SmallVector.h
++++ b/llvm/include/llvm/ADT/SmallVector.h
+@@ -30,6 +30,9 @@
+ #include <type_traits>
+ #include <utility>
+ 
++// ANDROID x86_64 defined the FS macro
++#undef CS
++
+ namespace llvm {
+ 
+ template <typename IteratorT> class iterator_range;
+-- 
+2.37.1.455.g008518b4e5-goog
+

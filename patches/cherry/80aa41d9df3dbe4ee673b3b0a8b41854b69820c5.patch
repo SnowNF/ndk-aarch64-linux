@@ -1,0 +1,36 @@
+From 80aa41d9df3dbe4ee673b3b0a8b41854b69820c5 Mon Sep 17 00:00:00 2001
+From: Colin Cross <ccross@android.com>
+Date: Wed, 15 Jun 2022 19:05:28 -0700
+Subject: [PATCH] Pass through even more LIBCXX_* variables to libfuzzer's
+ custom lib++
+
+Similar to D120946, pass LIBCXX_HAS_GCC_S_LIB and LIBCXX_USE_COMPILER_RT
+through to the custom lib++ builds so that libfuzzer doesn't end up with
+a .deplibs section that links against those libraries when the
+variables are set to false.
+
+Reviewed By: phosek
+
+Differential Revision: https://reviews.llvm.org/D127912
+---
+ compiler-rt/cmake/Modules/AddCompilerRT.cmake | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/compiler-rt/cmake/Modules/AddCompilerRT.cmake b/compiler-rt/cmake/Modules/AddCompilerRT.cmake
+index 280a39311491..502200654f04 100644
+--- a/compiler-rt/cmake/Modules/AddCompilerRT.cmake
++++ b/compiler-rt/cmake/Modules/AddCompilerRT.cmake
+@@ -646,8 +646,10 @@ macro(add_custom_libcxx name prefix)
+     CMAKE_READELF
+     CMAKE_SYSROOT
+     LIBCXX_HAS_MUSL_LIBC
++    LIBCXX_HAS_GCC_S_LIB
+     LIBCXX_HAS_PTHREAD_LIB
+     LIBCXX_HAS_RT_LIB
++    LIBCXX_USE_COMPILER_RT
+     LIBCXXABI_HAS_PTHREAD_LIB
+     PYTHON_EXECUTABLE
+     Python3_EXECUTABLE
+-- 
+2.36.1.476.g0c4daa206d-goog
+

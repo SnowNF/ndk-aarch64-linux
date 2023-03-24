@@ -1,0 +1,42 @@
+From 32994b7357a33de5a32c03a29691e93911dca4e3 Mon Sep 17 00:00:00 2001
+From: Yi Kong <yikong@google.com>
+Date: Fri, 23 Sep 2022 15:21:53 -0700
+Subject: [PATCH] Make MLIR model URLs cache variables
+
+This allows us to directly use the models published on Github.
+
+Differential Revision: https://reviews.llvm.org/D134566
+---
+ llvm/lib/Analysis/CMakeLists.txt | 2 +-
+ llvm/lib/CodeGen/CMakeLists.txt  | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/llvm/lib/Analysis/CMakeLists.txt b/llvm/lib/Analysis/CMakeLists.txt
+index 274b513eb99..dccd173aa72 100644
+--- a/llvm/lib/Analysis/CMakeLists.txt
++++ b/llvm/lib/Analysis/CMakeLists.txt
+@@ -2,7 +2,7 @@ if (DEFINED LLVM_HAVE_TF_AOT OR DEFINED LLVM_HAVE_TF_API)
+   include(TensorFlowCompile)
+   set(LLVM_INLINER_MODEL_PATH_DEFAULT "models/inliner-Oz")
+ 
+-  set(LLVM_INLINER_MODEL_CURRENT_URL "<UNSPECIFIED>")
++  set(LLVM_INLINER_MODEL_CURRENT_URL "<UNSPECIFIED>" CACHE STRING "URL to download the LLVM inliner model")
+ 
+   if (DEFINED LLVM_HAVE_TF_AOT)
+     tf_find_and_compile(
+diff --git a/llvm/lib/CodeGen/CMakeLists.txt b/llvm/lib/CodeGen/CMakeLists.txt
+index 604f2c630f8..afa37044c81 100644
+--- a/llvm/lib/CodeGen/CMakeLists.txt
++++ b/llvm/lib/CodeGen/CMakeLists.txt
+@@ -2,7 +2,7 @@ if (DEFINED LLVM_HAVE_TF_AOT OR DEFINED LLVM_HAVE_TF_API)
+   include(TensorFlowCompile)
+   set(LLVM_RAEVICT_MODEL_PATH_DEFAULT "models/regalloc-eviction")
+ 
+-  set(LLVM_RAEVICT_MODEL_CURRENT_URL "<UNSPECIFIED>")
++  set(LLVM_RAEVICT_MODEL_CURRENT_URL "<UNSPECIFIED>" CACHE STRING "URL to download the LLVM register allocator eviction model")
+ 
+   if (DEFINED LLVM_HAVE_TF_AOT)
+     tf_find_and_compile(
+-- 
+2.37.3.998.g577e59143f-goog
+

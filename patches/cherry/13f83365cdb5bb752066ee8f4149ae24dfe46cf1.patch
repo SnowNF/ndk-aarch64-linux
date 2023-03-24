@@ -1,0 +1,79 @@
+commit 13f83365cdb5bb752066ee8f4149ae24dfe46cf1
+Author: haoyuintel <haoyu.zhang@intel.com>
+Date:   Tue Nov 8 14:51:14 2022 +0800
+
+    [Driver] Add -fsample-profile-use-profi
+    
+    This patch enable `-sample-profile-use-profi` in Clang frontend as user-facing
+    feature. By using this patch, we can use the cflag of `-fsample-profile-use-profi`
+    instead of `-mllvm -sample-profile-use-profi`.
+    
+    Reviewed By: hans, MaskRay
+    
+    Differential Revision: https://reviews.llvm.org/D136846
+
+diff --git a/clang/docs/UsersManual.rst b/clang/docs/UsersManual.rst
+index 11bc5c906611..9b03db9e0f74 100644
+--- a/clang/docs/UsersManual.rst
++++ b/clang/docs/UsersManual.rst
+@@ -2241,6 +2241,15 @@ usual build cycle when using sample profilers for optimization:
+ 
+      $ clang++ -O2 -gline-tables-only -fprofile-sample-use=code.prof code.cc -o code
+ 
++  [OPTIONAL] Sampling-based profiles can have inaccuracies or missing block/
++  edge counters. The profile inference algorithm (profi) can be used to infer
++  missing blocks and edge counts, and improve the quality of profile data.
++  Enable it with ``-fsample-profile-use-profi``.
++
++  .. code-block:: console
++
++    $ clang++ -O2 -gline-tables-only -fprofile-sample-use=code.prof \
++      -fsample-profile-use-profi code.cc -o code
+ 
+ Sample Profile Formats
+ """"""""""""""""""""""
+diff --git a/clang/include/clang/Driver/Options.td b/clang/include/clang/Driver/Options.td
+index 608840b2d369..ca16bd976559 100644
+--- a/clang/include/clang/Driver/Options.td
++++ b/clang/include/clang/Driver/Options.td
+@@ -1251,6 +1251,13 @@ def fprofile_sample_accurate : Flag<["-"], "fprofile-sample-accurate">,
+                as cold. Otherwise, treat callsites without profile samples as if
+                we have no profile}]>,
+    MarshallingInfoFlag<CodeGenOpts<"ProfileSampleAccurate">>;
++def fsample_profile_use_profi : Flag<["-"], "fsample-profile-use-profi">,
++    Flags<[NoXarchOption, CC1Option]>, Group<f_Group>,
++    HelpText<"Use profi to infer block and edge counts">,
++    DocBrief<[{Infer block and edge counts. If the profiles have errors or missing
++               blocks caused by sampling, profile inference (profi) can convert
++               basic block counts to branch probabilites to fix them by extended
++               and re-engineered classic MCMF (min-cost max-flow) approach.}]>;
+ def fno_profile_sample_accurate : Flag<["-"], "fno-profile-sample-accurate">,
+   Group<f_Group>, Flags<[NoXarchOption]>;
+ def fauto_profile : Flag<["-"], "fauto-profile">, Group<f_Group>,
+diff --git a/clang/lib/Driver/ToolChains/Clang.cpp b/clang/lib/Driver/ToolChains/Clang.cpp
+index bffc8dc61160..4e404c579a57 100644
+--- a/clang/lib/Driver/ToolChains/Clang.cpp
++++ b/clang/lib/Driver/ToolChains/Clang.cpp
+@@ -5729,6 +5729,12 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
+ 
+   Args.AddLastArg(CmdArgs, options::OPT_fclang_abi_compat_EQ);
+ 
++  if (getLastProfileSampleUseArg(Args) &&
++      Args.hasArg(options::OPT_fsample_profile_use_profi)) {
++    CmdArgs.push_back("-mllvm");
++    CmdArgs.push_back("-sample-profile-use-profi");
++  }
++
+   // Add runtime flag for PS4/PS5 when PGO, coverage, or sanitizers are enabled.
+   if (RawTriple.isPS() &&
+       !Args.hasArg(options::OPT_nostdlib, options::OPT_nodefaultlibs)) {
+diff --git a/clang/test/Driver/pgo-sample-use-profi.c b/clang/test/Driver/pgo-sample-use-profi.c
+new file mode 100644
+index 000000000000..454a511a0628
+--- /dev/null
++++ b/clang/test/Driver/pgo-sample-use-profi.c
+@@ -0,0 +1,4 @@
++/// Test if profi flat is enabled in frontend as user-facing feature.
++// RUN: %clang -c -fsample-profile-use-profi -fprofile-sample-use=/dev/null -### %s 2>&1 | FileCheck %s
++
++// CHECK: "-mllvm" "-sample-profile-use-profi"

@@ -1,0 +1,64 @@
+From 56f94ede2af9a327e59fe84dbf8cbbb7bb1dfa79 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Micha=C5=82=20G=C3=B3rny?= <mgorny@gentoo.org>
+Date: Fri, 7 Oct 2022 18:42:27 +0200
+Subject: [PATCH] [llvm] [cmake] Support finding both static and shared zstd
+ via FindZstd
+
+Improve the logic in FindZstd to support finding both shared and static
+variants of the zstd library simultaneously.  Otherwise, if the shared
+library is installed, zstd::libzstd_static is not declared at all
+and CMake fails if LLVM_USE_STATIC_ZSTD is used.
+
+Differential Revision: https://reviews.llvm.org/D135457
+---
+ llvm/cmake/modules/Findzstd.cmake | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/llvm/cmake/modules/Findzstd.cmake b/llvm/cmake/modules/Findzstd.cmake
+index fab9ea80326..2994eaf7c99 100644
+--- a/llvm/cmake/modules/Findzstd.cmake
++++ b/llvm/cmake/modules/Findzstd.cmake
+@@ -3,6 +3,7 @@
+ # If successful, the following variables will be defined:
+ # zstd_INCLUDE_DIR
+ # zstd_LIBRARY
++# zstd_STATIC_LIBRARY
+ # zstd_FOUND
+ #
+ # Additionally, one of the following import targets will be defined:
+@@ -19,6 +20,9 @@ endif()
+ 
+ find_path(zstd_INCLUDE_DIR NAMES zstd.h)
+ find_library(zstd_LIBRARY NAMES zstd zstd_static)
++find_library(zstd_STATIC_LIBRARY NAMES
++  zstd_static
++  "${CMAKE_STATIC_LIBRARY_PREFIX}zstd${CMAKE_STATIC_LIBRARY_SUFFIX}")
+ 
+ include(FindPackageHandleStandardArgs)
+ find_package_handle_standard_args(
+@@ -33,17 +37,19 @@ if(zstd_FOUND)
+     set_target_properties(zstd::libzstd_shared PROPERTIES
+           INTERFACE_INCLUDE_DIRECTORIES "${zstd_INCLUDE_DIR}"
+           IMPORTED_LOCATION "${zstd_LIBRARY}")
++  else()
++    set(zstd_STATIC_LIBRARY "${zstd_LIBRARY}")
+   endif()
+-  if(zstd_LIBRARY MATCHES "${zstd_STATIC_LIBRARY_SUFFIX}$" AND
++  if(zstd_STATIC_LIBRARY MATCHES "${zstd_STATIC_LIBRARY_SUFFIX}$" AND
+      NOT TARGET zstd::libzstd_static)
+     add_library(zstd::libzstd_static STATIC IMPORTED)
+     set_target_properties(zstd::libzstd_static PROPERTIES
+         INTERFACE_INCLUDE_DIRECTORIES "${zstd_INCLUDE_DIR}"
+-        IMPORTED_LOCATION "${zstd_LIBRARY}")
++        IMPORTED_LOCATION "${zstd_STATIC_LIBRARY}")
+   endif()
+ endif()
+ 
+ unset(zstd_SHARED_LIBRARY_SUFFIX)
+ unset(zstd_STATIC_LIBRARY_SUFFIX)
+ 
+-mark_as_advanced(zstd_INCLUDE_DIR zstd_LIBRARY)
++mark_as_advanced(zstd_INCLUDE_DIR zstd_LIBRARY zstd_STATIC_LIBRARY)
+-- 
+2.38.1.431.g37b22c650d-goog
+

@@ -1,0 +1,107 @@
+From 6ade6d25110f9dbe8c7fb2f8ce6af951a3c23bc2 Mon Sep 17 00:00:00 2001
+From: "Luo, Yuanke" <yuanke.luo@intel.com>
+Date: Thu, 20 Oct 2022 17:49:47 +0800
+Subject: [PATCH] [Verifier] Relieve intrinsics parameter alignment size
+ constrain
+
+In D121898 we restrict parameter alignment size in IR since DAGISel
+only have 4 bits to hold the alignment value. However intrinsics
+won't be lowered to call instruction, so we can remove the constrain
+for intrinsics.
+
+Differential Revision: https://reviews.llvm.org/D136330
+---
+ llvm/lib/IR/Verifier.cpp              | 24 +++++++++++++-----------
+ llvm/test/Verifier/param-align.ll     | 10 ++++++++++
+ llvm/test/Verifier/param-ret-align.ll | 10 ++++++++++
+ 3 files changed, 33 insertions(+), 11 deletions(-)
+
+diff --git a/llvm/lib/IR/Verifier.cpp b/llvm/lib/IR/Verifier.cpp
+index de04256282eb..06f03164c19e 100644
+--- a/llvm/lib/IR/Verifier.cpp
++++ b/llvm/lib/IR/Verifier.cpp
+@@ -3222,6 +3222,13 @@ void Verifier::visitCallBase(CallBase &Call) {
+   Check(verifyAttributeCount(Attrs, Call.arg_size()),
+         "Attribute after last parameter!", Call);
+ 
++  Function *Callee =
++      dyn_cast<Function>(Call.getCalledOperand()->stripPointerCasts());
++  bool IsIntrinsic = Callee && Callee->isIntrinsic();
++  if (IsIntrinsic)
++    Check(Callee->getValueType() == FTy,
++          "Intrinsic called with incompatible signature", Call);
++
+   auto VerifyTypeAlign = [&](Type *Ty, const Twine &Message) {
+     if (!Ty->isSized())
+       return;
+@@ -3231,19 +3238,14 @@ void Verifier::visitCallBase(CallBase &Call) {
+           "Incorrect alignment of " + Message + " to called function!", Call);
+   };
+ 
+-  VerifyTypeAlign(FTy->getReturnType(), "return type");
+-  for (unsigned i = 0, e = FTy->getNumParams(); i != e; ++i) {
+-    Type *Ty = FTy->getParamType(i);
+-    VerifyTypeAlign(Ty, "argument passed");
++  if (!IsIntrinsic) {
++    VerifyTypeAlign(FTy->getReturnType(), "return type");
++    for (unsigned i = 0, e = FTy->getNumParams(); i != e; ++i) {
++      Type *Ty = FTy->getParamType(i);
++      VerifyTypeAlign(Ty, "argument passed");
++    }
+   }
+ 
+-  Function *Callee =
+-      dyn_cast<Function>(Call.getCalledOperand()->stripPointerCasts());
+-  bool IsIntrinsic = Callee && Callee->isIntrinsic();
+-  if (IsIntrinsic)
+-    Check(Callee->getValueType() == FTy,
+-          "Intrinsic called with incompatible signature", Call);
+-
+   if (Attrs.hasFnAttr(Attribute::Speculatable)) {
+     // Don't allow speculatable on call sites, unless the underlying function
+     // declaration is also speculatable.
+diff --git a/llvm/test/Verifier/param-align.ll b/llvm/test/Verifier/param-align.ll
+index 7217e47004d4..bfd01cbc9faa 100644
+--- a/llvm/test/Verifier/param-align.ll
++++ b/llvm/test/Verifier/param-align.ll
+@@ -1,6 +1,16 @@
+ ; RUN: not llvm-as < %s 2>&1 | FileCheck %s
+ 
++; Large vector for intrinsics is valid
++; CHECK-NOT: llvm.fshr
++define dso_local <8192 x i32> @test_intrin(<8192 x i32> %l, <8192 x i32> %r, <8192 x i32> %amt) {
++entry:
++  %b = call <8192 x i32> @llvm.fshr.v8192i32(<8192 x i32> %l, <8192 x i32> %r, <8192 x i32> %amt)
++  ret <8192 x i32> %b
++}
++declare <8192 x i32> @llvm.fshr.v8192i32 (<8192 x i32> %l, <8192 x i32> %r, <8192 x i32> %amt)
++
+ ; CHECK: Incorrect alignment of argument passed to called function!
++; CHECK: bar
+ define dso_local void @foo(<8192 x float> noundef %vec) {
+ entry:
+   call void @bar(<8192 x float> %vec)
+diff --git a/llvm/test/Verifier/param-ret-align.ll b/llvm/test/Verifier/param-ret-align.ll
+index d55165685fbc..dd302c38b53d 100644
+--- a/llvm/test/Verifier/param-ret-align.ll
++++ b/llvm/test/Verifier/param-ret-align.ll
+@@ -1,6 +1,16 @@
+ ; RUN: not llvm-as < %s 2>&1 | FileCheck %s
+ 
++; Large vector for intrinsics is valid
++; CHECK-NOT: llvm.fshr
++define dso_local <8192 x i32> @test_intrin(<8192 x i32> %l, <8192 x i32> %r, <8192 x i32> %amt) {
++entry:
++  %b = call <8192 x i32> @llvm.fshr.v8192i32(<8192 x i32> %l, <8192 x i32> %r, <8192 x i32> %amt)
++  ret <8192 x i32> %b
++}
++declare <8192 x i32> @llvm.fshr.v8192i32 (<8192 x i32> %l, <8192 x i32> %r, <8192 x i32> %amt)
++
+ ; CHECK: Incorrect alignment of return type to called function!
++; CHECK: bar
+ define dso_local void @foo() {
+ entry:
+   call <8192 x float> @bar()
+-- 
+2.38.0.135.g90850a2211-goog
+

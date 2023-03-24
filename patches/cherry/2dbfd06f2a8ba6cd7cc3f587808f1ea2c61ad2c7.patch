@@ -1,0 +1,45 @@
+From 2dbfd06f2a8ba6cd7cc3f587808f1ea2c61ad2c7 Mon Sep 17 00:00:00 2001
+From: Nick Desaulniers <ndesaulniers@google.com>
+Date: Tue, 4 Oct 2022 11:59:29 -0700
+Subject: [PATCH] [Clang] fix -Wvoid-ptr-dereference for gnu89
+
+Follow up to D134702; it looks like we were still warning for gnu89
+mode.
+
+Link: https://reviews.llvm.org/D134702
+Link: https://github.com/ClangBuiltLinux/linux/issues/1720#issuecomment-1265738778
+
+Reviewed By: aaron.ballman
+
+Differential Revision: https://reviews.llvm.org/D135090
+---
+ clang/lib/Sema/SemaExpr.cpp               | 2 +-
+ clang/test/Sema/no-warn-void-ptr-uneval.c | 1 +
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/clang/lib/Sema/SemaExpr.cpp b/clang/lib/Sema/SemaExpr.cpp
+index fca9240362e7..6d28a4495231 100644
+--- a/clang/lib/Sema/SemaExpr.cpp
++++ b/clang/lib/Sema/SemaExpr.cpp
+@@ -14536,7 +14536,7 @@ static QualType CheckIndirectionOperand(Sema &S, Expr *Op, ExprValueKind &VK,
+     //   [...] the expression to which [the unary * operator] is applied shall
+     //   be a pointer to an object type, or a pointer to a function type
+     LangOptions LO = S.getLangOpts();
+-    if (LO.CPlusPlus || !(LO.C99 && (IsAfterAmp || S.isUnevaluatedContext())))
++    if (LO.CPlusPlus || (!(LO.C99 && IsAfterAmp) && !S.isUnevaluatedContext()))
+       S.Diag(OpLoc, diag::ext_typecheck_indirection_through_void_pointer)
+           << LO.CPlusPlus << OpTy << Op->getSourceRange();
+   }
+diff --git a/clang/test/Sema/no-warn-void-ptr-uneval.c b/clang/test/Sema/no-warn-void-ptr-uneval.c
+index 2aed1180ab0d..cc93efcda68f 100644
+--- a/clang/test/Sema/no-warn-void-ptr-uneval.c
++++ b/clang/test/Sema/no-warn-void-ptr-uneval.c
+@@ -1,4 +1,5 @@
+ // RUN: %clang_cc1 -fsyntax-only -Wno-unused-value -verify %s
++// RUN: %clang_cc1 -fsyntax-only -Wno-unused-value -verify -std=gnu89 %s
+ 
+ // expected-no-diagnostics
+ void foo(void *vp) {
+-- 
+2.39.0.rc0.267.gcb52ba06e7-goog
+

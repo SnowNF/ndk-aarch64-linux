@@ -1,0 +1,133 @@
+commit aef03c9b3bed5cef5a1940774b80128aefcb4095
+Author: Kees Cook <keescook@chromium.org>
+Date:   Fri May 6 12:47:43 2022 -0700
+
+    [clang][auto-init] Deprecate -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang
+    
+    GCC 12 has been released and contains unconditional support for
+    -ftrivial-auto-var-init=zero:
+    https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html#index-ftrivial-auto-var-init
+    
+    Maintain compatibility with GCC, and remove the -enable flag for "zero"
+    mode. The flag is left to generate an "unused" warning, though, to not
+    break all the existing users. The flag will be fully removed in Clang 17.
+    
+    Link: https://github.com/llvm/llvm-project/issues/44842
+    
+    Reviewed By: nickdesaulniers, MaskRay, srhines, xbolva00
+    
+    Differential Revision: https://reviews.llvm.org/D125142
+
+diff --git a/clang/docs/ReleaseNotes.rst b/clang/docs/ReleaseNotes.rst
+index c2fedad18e0c..2320f4a7a4fa 100644
+--- a/clang/docs/ReleaseNotes.rst
++++ b/clang/docs/ReleaseNotes.rst
+@@ -277,6 +277,10 @@ New Compiler Flags
+ 
+ Deprecated Compiler Flags
+ -------------------------
++- ``-enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang``
++  has been deprecated. The flag will be removed in Clang 18.
++  ``-ftrivial-auto-var-init=zero`` is now available unconditionally, to be
++  compatible with GCC.
+ 
+ Modified Compiler Flags
+ -----------------------
+diff --git a/clang/include/clang/Basic/DiagnosticDriverKinds.td b/clang/include/clang/Basic/DiagnosticDriverKinds.td
+index 56d8d508cdbc..282ecdbed4ce 100644
+--- a/clang/include/clang/Basic/DiagnosticDriverKinds.td
++++ b/clang/include/clang/Basic/DiagnosticDriverKinds.td
+@@ -588,11 +588,6 @@ def warn_drv_darwin_sdk_invalid_settings : Warning<
+   "SDK settings were ignored as 'SDKSettings.json' could not be parsed">,
+   InGroup<DiagGroup<"darwin-sdk-settings">>;
+ 
+-def err_drv_trivial_auto_var_init_zero_disabled : Error<
+-  "'-ftrivial-auto-var-init=zero' hasn't been enabled; enable it at your own "
+-  "peril for benchmarking purpose only with "
+-  "'-enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang'">;
+-
+ def err_drv_trivial_auto_var_init_stop_after_missing_dependency : Error<
+   "'-ftrivial-auto-var-init-stop-after=*' is used without "
+   "'-ftrivial-auto-var-init=zero' or '-ftrivial-auto-var-init=pattern'">;
+diff --git a/clang/include/clang/Driver/Options.td b/clang/include/clang/Driver/Options.td
+index 4e85242f136b..f7744a109f9a 100644
+--- a/clang/include/clang/Driver/Options.td
++++ b/clang/include/clang/Driver/Options.td
+@@ -247,6 +247,12 @@ def : Flag<["-"], "fno-slp-vectorize-aggressive">, Group<clang_ignored_legacy_op
+ def mmpx : Flag<["-"], "mmpx">, Group<clang_ignored_legacy_options_Group>;
+ def mno_mpx : Flag<["-"], "mno-mpx">, Group<clang_ignored_legacy_options_Group>;
+ 
++// Retired with clang-16.0, to provide a deprecation period; it should
++// be removed in Clang 18 or later.
++def enable_trivial_var_init_zero : Flag<["-"], "enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang">,
++  Flags<[CC1Option, CoreOption, NoArgumentUnused]>,
++  Group<clang_ignored_legacy_options_Group>;
++
+ // Group that ignores all gcc optimizations that won't be implemented
+ def clang_ignored_gcc_optimization_f_Group : OptionGroup<
+   "<clang_ignored_gcc_optimization_f_Group>">, Group<f_Group>, Flags<[Ignored]>;
+@@ -2791,9 +2797,6 @@ def ftrivial_auto_var_init : Joined<["-"], "ftrivial-auto-var-init=">, Group<f_G
+   NormalizedValuesScope<"LangOptions::TrivialAutoVarInitKind">,
+   NormalizedValues<["Uninitialized", "Zero", "Pattern"]>,
+   MarshallingInfoEnum<LangOpts<"TrivialAutoVarInit">, "Uninitialized">;
+-def enable_trivial_var_init_zero : Flag<["-"], "enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang">,
+-  Flags<[CC1Option, CoreOption, NoArgumentUnused]>,
+-  HelpText<"Trivial automatic variable initialization to zero is only here for benchmarks, it'll eventually be removed, and I'm OK with that because I'm only using it to benchmark">;
+ def ftrivial_auto_var_init_stop_after : Joined<["-"], "ftrivial-auto-var-init-stop-after=">, Group<f_Group>,
+   Flags<[CC1Option, CoreOption]>, HelpText<"Stop initializing trivial automatic stack variables after the specified number of instances">,
+   MarshallingInfoInt<LangOpts<"TrivialAutoVarInitStopAfter">>;
+diff --git a/clang/lib/Driver/ToolChains/Clang.cpp b/clang/lib/Driver/ToolChains/Clang.cpp
+index dd5596bc942e..e5fce3579359 100644
+--- a/clang/lib/Driver/ToolChains/Clang.cpp
++++ b/clang/lib/Driver/ToolChains/Clang.cpp
+@@ -3458,8 +3458,6 @@ static void RenderTrivialAutoVarInitOptions(const Driver &D,
+     }
+ 
+   if (!TrivialAutoVarInit.empty()) {
+-    if (TrivialAutoVarInit == "zero" && !Args.hasArg(options::OPT_enable_trivial_var_init_zero))
+-      D.Diag(diag::err_drv_trivial_auto_var_init_zero_disabled);
+     CmdArgs.push_back(
+         Args.MakeArgString("-ftrivial-auto-var-init=" + TrivialAutoVarInit));
+   }
+diff --git a/clang/test/Driver/cl-options.c b/clang/test/Driver/cl-options.c
+index 45f93d6ba6ce..3d4a154af59f 100644
+--- a/clang/test/Driver/cl-options.c
++++ b/clang/test/Driver/cl-options.c
+@@ -719,7 +719,6 @@
+ // RUN:     -fimplicit-modules \
+ // RUN:     -fno-implicit-modules \
+ // RUN:     -ftrivial-auto-var-init=zero \
+-// RUN:     -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang \
+ // RUN:     --version \
+ // RUN:     -Werror /Zs -- %s 2>&1
+ 
+diff --git a/clang/test/Driver/clang_f_opts.c b/clang/test/Driver/clang_f_opts.c
+index 9c38b5906b7b..0ac67d60f7d3 100644
+--- a/clang/test/Driver/clang_f_opts.c
++++ b/clang/test/Driver/clang_f_opts.c
+@@ -569,18 +569,19 @@
+ 
+ // RUN: %clang -### -S -ftrivial-auto-var-init=uninitialized %s 2>&1 | FileCheck -check-prefix=CHECK-TRIVIAL-UNINIT %s
+ // RUN: %clang -### -S -ftrivial-auto-var-init=pattern %s 2>&1 | FileCheck -check-prefix=CHECK-TRIVIAL-PATTERN %s
+-// RUN: %clang -### -S -ftrivial-auto-var-init=zero -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang %s 2>&1 | FileCheck -check-prefix=CHECK-TRIVIAL-ZERO-GOOD %s
+-// RUN: %clang -### -S -ftrivial-auto-var-init=zero %s 2>&1 | FileCheck -check-prefix=CHECK-TRIVIAL-ZERO-BAD %s
++// RUN: %clang -### -S -ftrivial-auto-var-init=zero %s 2>&1 | FileCheck -check-prefix=CHECK-TRIVIAL-ZERO %s
++// RUN: %clang -### -S -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang \
++// RUN:   -ftrivial-auto-var-init=zero %s 2>&1 | FileCheck -check-prefix=CHECK-TRIVIAL-ZERO-ENABLE-DEPRECATED %s
+ // CHECK-TRIVIAL-UNINIT-NOT: hasn't been enabled
+ // CHECK-TRIVIAL-PATTERN-NOT: hasn't been enabled
+-// CHECK-TRIVIAL-ZERO-GOOD-NOT: hasn't been enabled
+-// CHECK-TRIVIAL-ZERO-BAD: hasn't been enabled
++// CHECK-TRIVIAL-ZERO-NOT: hasn't been enabled
++// CHECK-TRIVIAL-ZERO-ENABLE-DEPRECATED: has been deprecated
+ 
+ // RUN: %clang -### -S -ftrivial-auto-var-init=pattern -ftrivial-auto-var-init-stop-after=1 %s 2>&1 | FileCheck -check-prefix=CHECK-TRIVIAL-PATTERN-STOP-AFTER %s
+-// RUN: %clang -### -S -ftrivial-auto-var-init=zero -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang -ftrivial-auto-var-init-stop-after=1 %s 2>&1 | FileCheck -check-prefix=CHECK-TRIVIAL-ZERO-STOP-AFTER %s
++// RUN: %clang -### -S -ftrivial-auto-var-init=zero -ftrivial-auto-var-init-stop-after=1 %s 2>&1 | FileCheck -check-prefix=CHECK-TRIVIAL-ZERO-STOP-AFTER %s
+ // RUN: %clang -### -S -ftrivial-auto-var-init-stop-after=0 %s 2>&1 | FileCheck -check-prefix=CHECK-TRIVIAL-STOP-AFTER-MISSING-DEPENDENCY %s
+ // RUN: %clang -### -S -ftrivial-auto-var-init=pattern -ftrivial-auto-var-init-stop-after=0 %s 2>&1 | FileCheck -check-prefix=CHECK-TRIVIAL-PATTERN-STOP-AFTER-INVALID-VALUE %s
+-// RUN: %clang -### -S -ftrivial-auto-var-init=zero -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang -ftrivial-auto-var-init-stop-after=0 %s 2>&1 | FileCheck -check-prefix=CHECK-TRIVIAL-ZERO-STOP-AFTER-INVALID-VALUE %s
++// RUN: %clang -### -S -ftrivial-auto-var-init=zero -ftrivial-auto-var-init-stop-after=0 %s 2>&1 | FileCheck -check-prefix=CHECK-TRIVIAL-ZERO-STOP-AFTER-INVALID-VALUE %s
+ // CHECK-TRIVIAL-PATTERN-STOP-AFTER-NOT: is used without '-ftrivial-auto-var-init'
+ // CHECK-TRIVIAL-PATTERN-STOP-AFTER-NOT: only accepts positive integers
+ // CHECK-TRIVIAL-ZERO-STOP-AFTER-NOT: is used without '-ftrivial-auto-var-init'

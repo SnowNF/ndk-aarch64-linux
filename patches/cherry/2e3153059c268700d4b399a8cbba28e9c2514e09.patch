@@ -1,0 +1,33 @@
+From 2e3153059c268700d4b399a8cbba28e9c2514e09 Mon Sep 17 00:00:00 2001
+From: Ivan Kosarev <ivan.kosarev@amd.com>
+Date: Thu, 26 Jan 2023 17:44:43 +0000
+Subject: [PATCH] [CMake] Support undefined LLVM_NATIVE_ARCH in
+ llvm_map_components_to_libnames().
+
+https://reviews.llvm.org/D142405 made this function relying on the
+LLVM_NATIVE_ARCH be defined, which is not necessarily the case for
+third-party projects that include LLVM as their part.
+
+Reviewed By: beanz
+
+Differential Revision: https://reviews.llvm.org/D142610
+---
+ llvm/cmake/modules/LLVM-Config.cmake | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/llvm/cmake/modules/LLVM-Config.cmake b/llvm/cmake/modules/LLVM-Config.cmake
+index a5a7be61dce0..37eab12e7460 100644
+--- a/llvm/cmake/modules/LLVM-Config.cmake
++++ b/llvm/cmake/modules/LLVM-Config.cmake
+@@ -236,7 +236,7 @@ function(llvm_map_components_to_libnames out_libs)
+       list(APPEND link_components "interpreter")
+     endif()
+   endif()
+-  if(native IN_LIST link_components AND ${LLVM_NATIVE_ARCH} IN_LIST LLVM_TARGETS_TO_BUILD)
++  if(native IN_LIST link_components AND "${LLVM_NATIVE_ARCH}" IN_LIST LLVM_TARGETS_TO_BUILD)
+     list(APPEND link_components ${LLVM_NATIVE_ARCH})
+   endif()
+ 
+-- 
+2.34.1
+

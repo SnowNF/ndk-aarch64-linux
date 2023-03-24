@@ -1,0 +1,170 @@
+commit 1e723b7ab30360fcf70c3a66dadcc4d5bbb2ace9
+Author: David Green <david.green@arm.com>
+Date:   Wed Oct 12 11:11:32 2022 +0100
+
+    Revert "[AArch64] Add support for 128-bit non temporal loads."
+    
+    This reverts commit 661403b85c219a83baa37335a870d4d93dc4b1c3 as the
+    custom lowering of loads prevents expanding unaligned loads with
+    strict-align.
+
+diff --git a/llvm/lib/Target/AArch64/AArch64ISelLowering.cpp b/llvm/lib/Target/AArch64/AArch64ISelLowering.cpp
+index e9a181a7b010..070c0ef61cc9 100644
+--- a/llvm/lib/Target/AArch64/AArch64ISelLowering.cpp
++++ b/llvm/lib/Target/AArch64/AArch64ISelLowering.cpp
+@@ -799,11 +799,6 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
+   setOperationAction(ISD::LOAD, MVT::v8f32, Custom);
+   setOperationAction(ISD::LOAD, MVT::v4f64, Custom);
+   setOperationAction(ISD::LOAD, MVT::v4i64, Custom);
+-  // 128-bit non-temporal loads can be lowered to LDNP using custom lowering.
+-  setOperationAction(ISD::LOAD, MVT::v4i32, Custom);
+-  setOperationAction(ISD::LOAD, MVT::v2i64, Custom);
+-  setOperationAction(ISD::LOAD, MVT::v8i16, Custom);
+-  setOperationAction(ISD::LOAD, MVT::v16i8, Custom);
+ 
+   // Lower READCYCLECOUNTER using an mrs from PMCCNTR_EL0.
+   // This requires the Performance Monitors extension.
+@@ -2356,7 +2351,6 @@ const char *AArch64TargetLowering::getTargetNodeName(unsigned Opcode) const {
+     MAKE_CASE(AArch64ISD::SSTNT1_INDEX_PRED)
+     MAKE_CASE(AArch64ISD::LDP)
+     MAKE_CASE(AArch64ISD::LDNP)
+-    MAKE_CASE(AArch64ISD::LDNP128)
+     MAKE_CASE(AArch64ISD::STP)
+     MAKE_CASE(AArch64ISD::STNP)
+     MAKE_CASE(AArch64ISD::BITREVERSE_MERGE_PASSTHRU)
+@@ -5449,27 +5443,6 @@ SDValue AArch64TargetLowering::LowerLOAD(SDValue Op,
+   SDLoc DL(Op);
+   LoadSDNode *LoadNode = cast<LoadSDNode>(Op);
+   assert(LoadNode && "Expected custom lowering of a load node");
+-  // Handle lowering 128-bit non temporal loads for little-endian targets.
+-  EVT MemVT = LoadNode->getMemoryVT();
+-  if (LoadNode->isNonTemporal() && Subtarget->isLittleEndian() &&
+-      MemVT.getSizeInBits() == 128 &&
+-      (MemVT.getScalarSizeInBits() == 8u ||
+-       MemVT.getScalarSizeInBits() == 16u ||
+-       MemVT.getScalarSizeInBits() == 32u ||
+-       MemVT.getScalarSizeInBits() == 64u)) {
+-
+-    SDValue Result = DAG.getMemIntrinsicNode(
+-        AArch64ISD::LDNP128, DL,
+-        DAG.getVTList({MemVT.getHalfNumVectorElementsVT(*DAG.getContext()),
+-                       MemVT.getHalfNumVectorElementsVT(*DAG.getContext()),
+-                       MVT::Other}),
+-        {LoadNode->getChain(), LoadNode->getBasePtr()}, LoadNode->getMemoryVT(),
+-        LoadNode->getMemOperand());
+-
+-    SDValue P = DAG.getNode(ISD::CONCAT_VECTORS, SDLoc(Op), MemVT,
+-                            Result.getValue(0), Result.getValue(1));
+-    return DAG.getMergeValues({P, Result.getValue(2) /* Chain */}, DL);
+-  }
+ 
+   if (LoadNode->getMemoryVT() == MVT::i64x8) {
+     SmallVector<SDValue, 8> Ops;
+@@ -5491,9 +5464,9 @@ SDValue AArch64TargetLowering::LowerLOAD(SDValue Op,
+ 
+   // Custom lowering for extending v4i8 vector loads.
+   EVT VT = Op->getValueType(0);
++  assert((VT == MVT::v4i16 || VT == MVT::v4i32) && "Expected v4i16 or v4i32");
+ 
+-  if ((VT != MVT::v4i16 && VT != MVT::v4i32) ||
+-      LoadNode->getMemoryVT() != MVT::v4i8)
++  if (LoadNode->getMemoryVT() != MVT::v4i8)
+     return SDValue();
+ 
+   unsigned ExtType;
+diff --git a/llvm/lib/Target/AArch64/AArch64ISelLowering.h b/llvm/lib/Target/AArch64/AArch64ISelLowering.h
+index 38f69183f76d..33b2bf141320 100644
+--- a/llvm/lib/Target/AArch64/AArch64ISelLowering.h
++++ b/llvm/lib/Target/AArch64/AArch64ISelLowering.h
+@@ -465,7 +465,6 @@ enum NodeType : unsigned {
+ 
+   LDP,
+   LDNP,
+-  LDNP128,
+   STP,
+   STNP,
+ 
+diff --git a/llvm/lib/Target/AArch64/AArch64InstrInfo.td b/llvm/lib/Target/AArch64/AArch64InstrInfo.td
+index 3b7e5524f6c9..affa34d593de 100644
+--- a/llvm/lib/Target/AArch64/AArch64InstrInfo.td
++++ b/llvm/lib/Target/AArch64/AArch64InstrInfo.td
+@@ -319,7 +319,6 @@ def SDT_AArch64uaddlp : SDTypeProfile<1, 1, [SDTCisVec<0>, SDTCisVec<1>]>;
+ 
+ def SDT_AArch64ldp : SDTypeProfile<2, 1, [SDTCisVT<0, i64>, SDTCisSameAs<0, 1>, SDTCisPtrTy<2>]>;
+ def SDT_AArch64ldnp : SDTypeProfile<2, 1, [SDTCisVT<0, v4i32>, SDTCisSameAs<0, 1>, SDTCisPtrTy<2>]>;
+-def SDT_AArch64ldnp128 : SDTypeProfile<2, 1, [SDTCisVT<0, v2i32>, SDTCisSameAs<0, 1>, SDTCisPtrTy<2>]>;
+ def SDT_AArch64stp : SDTypeProfile<0, 3, [SDTCisVT<0, i64>, SDTCisSameAs<0, 1>, SDTCisPtrTy<2>]>;
+ def SDT_AArch64stnp : SDTypeProfile<0, 3, [SDTCisVT<0, v4i32>, SDTCisSameAs<0, 1>, SDTCisPtrTy<2>]>;
+ 
+@@ -733,7 +732,6 @@ def AArch64uunpklo : SDNode<"AArch64ISD::UUNPKLO", SDT_AArch64unpk>;
+ 
+ def AArch64ldp : SDNode<"AArch64ISD::LDP", SDT_AArch64ldp, [SDNPHasChain, SDNPMayLoad, SDNPMemOperand]>;
+ def AArch64ldnp : SDNode<"AArch64ISD::LDNP", SDT_AArch64ldnp, [SDNPHasChain, SDNPMayLoad, SDNPMemOperand]>;
+-def AArch64ldnp128 : SDNode<"AArch64ISD::LDNP128", SDT_AArch64ldnp128, [SDNPHasChain, SDNPMayLoad, SDNPMemOperand]>;
+ def AArch64stp : SDNode<"AArch64ISD::STP", SDT_AArch64stp, [SDNPHasChain, SDNPMayStore, SDNPMemOperand]>;
+ def AArch64stnp : SDNode<"AArch64ISD::STNP", SDT_AArch64stnp, [SDNPHasChain, SDNPMayStore, SDNPMemOperand]>;
+ 
+@@ -2595,9 +2593,6 @@ def : Pat<(AArch64ldp (am_indexed7s64 GPR64sp:$Rn, simm7s8:$offset)),
+ 
+ def : Pat<(AArch64ldnp (am_indexed7s128 GPR64sp:$Rn, simm7s16:$offset)),
+           (LDNPQi GPR64sp:$Rn, simm7s16:$offset)>;
+-
+-def : Pat<(AArch64ldnp128 (am_indexed7s64 GPR64sp:$Rn, simm7s8:$offset)),
+-          (LDNPDi GPR64sp:$Rn, simm7s8:$offset)>;
+ //---
+ // (register offset)
+ //---
+diff --git a/llvm/test/CodeGen/AArch64/nontemporal-load.ll b/llvm/test/CodeGen/AArch64/nontemporal-load.ll
+index 12f1de0a4b8e..288ba22e7928 100644
+--- a/llvm/test/CodeGen/AArch64/nontemporal-load.ll
++++ b/llvm/test/CodeGen/AArch64/nontemporal-load.ll
+@@ -103,8 +103,7 @@ define <32 x i8> @test_ldnp_v32i8(<32 x i8>* %A) {
+ define <4 x i32> @test_ldnp_v4i32(<4 x i32>* %A) {
+ ; CHECK-LABEL: test_ldnp_v4i32:
+ ; CHECK:       ; %bb.0:
+-; CHECK-NEXT:    ldnp d0, d1, [x0]
+-; CHECK-NEXT:    mov.d v0[1], v1[0]
++; CHECK-NEXT:    ldr q0, [x0]
+ ; CHECK-NEXT:    ret
+ ;
+ ; CHECK-BE-LABEL: test_ldnp_v4i32:
+@@ -118,8 +117,7 @@ define <4 x i32> @test_ldnp_v4i32(<4 x i32>* %A) {
+ define <4 x float> @test_ldnp_v4f32(<4 x float>* %A) {
+ ; CHECK-LABEL: test_ldnp_v4f32:
+ ; CHECK:       ; %bb.0:
+-; CHECK-NEXT:    ldnp d0, d1, [x0]
+-; CHECK-NEXT:    mov.d v0[1], v1[0]
++; CHECK-NEXT:    ldr q0, [x0]
+ ; CHECK-NEXT:    ret
+ ;
+ ; CHECK-BE-LABEL: test_ldnp_v4f32:
+@@ -133,8 +131,7 @@ define <4 x float> @test_ldnp_v4f32(<4 x float>* %A) {
+ define <8 x i16> @test_ldnp_v8i16(<8 x i16>* %A) {
+ ; CHECK-LABEL: test_ldnp_v8i16:
+ ; CHECK:       ; %bb.0:
+-; CHECK-NEXT:    ldnp d0, d1, [x0]
+-; CHECK-NEXT:    mov.d v0[1], v1[0]
++; CHECK-NEXT:    ldr q0, [x0]
+ ; CHECK-NEXT:    ret
+ ;
+ ; CHECK-BE-LABEL: test_ldnp_v8i16:
+@@ -148,8 +145,7 @@ define <8 x i16> @test_ldnp_v8i16(<8 x i16>* %A) {
+ define <16 x i8> @test_ldnp_v16i8(<16 x i8>* %A) {
+ ; CHECK-LABEL: test_ldnp_v16i8:
+ ; CHECK:       ; %bb.0:
+-; CHECK-NEXT:    ldnp d0, d1, [x0]
+-; CHECK-NEXT:    mov.d v0[1], v1[0]
++; CHECK-NEXT:    ldr q0, [x0]
+ ; CHECK-NEXT:    ret
+ ;
+ ; CHECK-BE-LABEL: test_ldnp_v16i8:
+@@ -162,8 +158,7 @@ define <16 x i8> @test_ldnp_v16i8(<16 x i8>* %A) {
+ define <2 x double> @test_ldnp_v2f64(<2 x double>* %A) {
+ ; CHECK-LABEL: test_ldnp_v2f64:
+ ; CHECK:       ; %bb.0:
+-; CHECK-NEXT:    ldnp d0, d1, [x0]
+-; CHECK-NEXT:    mov.d v0[1], v1[0]
++; CHECK-NEXT:    ldr q0, [x0]
+ ; CHECK-NEXT:    ret
+ ;
+ ; CHECK-BE-LABEL: test_ldnp_v2f64:

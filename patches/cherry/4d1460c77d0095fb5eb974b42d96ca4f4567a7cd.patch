@@ -1,0 +1,243 @@
+commit 4d1460c77d0095fb5eb974b42d96ca4f4567a7cd
+Author: Mats Petersson <mats.petersson@arm.com>
+Date:   Wed Oct 5 19:16:18 2022 +0100
+
+    Revert "[flang] Add -fpass-plugin option to Flang frontend"
+    
+    This reverts commit 43fe6f7cc35ded691bbc2fa844086d321e705d46.
+    
+    Reverting this as CI breaks.
+    
+    To reproduce, run check-flang, and it will fail with an error saying
+    .../lib/Bye.so not found in pass-plugin.f90
+
+diff --git a/clang/include/clang/Driver/Options.td b/clang/include/clang/Driver/Options.td
+index f09025d34346..0b795184b7bd 100644
+--- a/clang/include/clang/Driver/Options.td
++++ b/clang/include/clang/Driver/Options.td
+@@ -2710,7 +2710,7 @@ def fplugin_arg : Joined<["-"], "fplugin-arg-">,
+   MetaVarName<"<name>-<arg>">,
+   HelpText<"Pass <arg> to plugin <name>">;
+ def fpass_plugin_EQ : Joined<["-"], "fpass-plugin=">,
+-  Group<f_Group>, Flags<[CC1Option,FlangOption,FC1Option]>, MetaVarName<"<dsopath>">,
++  Group<f_Group>, Flags<[CC1Option]>, MetaVarName<"<dsopath>">,
+   HelpText<"Load pass plugin from a dynamic shared object file (only with new pass manager).">,
+   MarshallingInfoStringVector<CodeGenOpts<"PassPlugins">>;
+ defm preserve_as_comments : BoolFOption<"preserve-as-comments",
+diff --git a/clang/lib/Driver/ToolChains/Flang.cpp b/clang/lib/Driver/ToolChains/Flang.cpp
+index 9fe83ed0886b..b279529a3318 100644
+--- a/clang/lib/Driver/ToolChains/Flang.cpp
++++ b/clang/lib/Driver/ToolChains/Flang.cpp
+@@ -55,8 +55,7 @@ void Flang::AddOtherOptions(const ArgList &Args, ArgStringList &CmdArgs) const {
+   Args.AddAllArgs(CmdArgs,
+                   {options::OPT_module_dir, options::OPT_fdebug_module_writer,
+                    options::OPT_fintrinsic_modules_path, options::OPT_pedantic,
+-                   options::OPT_std_EQ, options::OPT_W_Joined,
+-                   options::OPT_fpass_plugin_EQ});
++                   options::OPT_std_EQ, options::OPT_W_Joined});
+ }
+ 
+ void Flang::AddPicOptions(const ArgList &Args, ArgStringList &CmdArgs) const {
+diff --git a/flang/docs/FlangDriver.md b/flang/docs/FlangDriver.md
+index b44f44efc93f..af1fddc8f750 100644
+--- a/flang/docs/FlangDriver.md
++++ b/flang/docs/FlangDriver.md
+@@ -507,28 +507,3 @@ Lastly, if `ParseTree` modifications are performed, then it might be necessary
+ to re-analyze expressions and modify scope or symbols. You can check
+ [Semantics.md](Semantics.md) for more details on how `ParseTree` is edited
+ e.g. during the semantic checks.
+-
+-# LLVM Pass Plugins
+-
+-Pass plugins are dynamic shared objects that consist of one or more LLVM IR
+-passes. The `-fpass-plugin` option enables these passes to be passed to the 
+-middle-end where they are added to the optimization pass pipeline and run after
+-lowering to LLVM IR.The exact position of the pass in the pipeline will depend 
+-on how it has been registered with the `llvm::PassBuilder`. See the 
+-documentation for 
+-[`llvm::PassBuilder`](https://llvm.org/doxygen/classllvm_1_1PassBuilder.html)
+-for details. 
+-
+-The framework to enable pass plugins in `flang-new` uses the exact same 
+-machinery as that used by `clang` and thus has the same capabilities and
+-limitations. 
+-
+-In order to use a pass plugin, the pass(es) must be compiled into a dynamic 
+-shared object which is then loaded using the `-fpass-plugin` option. 
+-
+-```
+-flang-new -fpass-plugin=/path/to/plugin.so <file.f90>
+-```
+-
+-This option is available in both the compiler driver and the frontend driver. 
+-Note that LLVM plugins are not officially supported on Windows.
+diff --git a/flang/docs/ReleaseNotes.md b/flang/docs/ReleaseNotes.md
+index 0cc85db9debc..fd1db3b00eb8 100644
+--- a/flang/docs/ReleaseNotes.md
++++ b/flang/docs/ReleaseNotes.md
+@@ -24,10 +24,6 @@ page](https://llvm.org/releases/).
+ 
+ ## Major New Features
+ 
+-* Flang now supports loading LLVM pass plugins with the `-fpass-plugin` option
+-  which is also available in clang. The option mimics the behavior of the
+-  corresponding option in clang and has the same capabilities and limitations.
+-
+ ## Bug Fixes
+ 
+ ## Non-comprehensive list of changes in this release
+diff --git a/flang/include/flang/Frontend/CodeGenOptions.h b/flang/include/flang/Frontend/CodeGenOptions.h
+index 7bb10d4b0f3c..025f67cd8e17 100644
+--- a/flang/include/flang/Frontend/CodeGenOptions.h
++++ b/flang/include/flang/Frontend/CodeGenOptions.h
+@@ -46,9 +46,6 @@ protected:
+ class CodeGenOptions : public CodeGenOptionsBase {
+ 
+ public:
+-  /// The paths to the pass plugins that were registered using -fpass-plugin.
+-  std::vector<std::string> LLVMPassPlugins;
+-
+   // Define accessors/mutators for code generation options of enumeration type.
+ #define CODEGENOPT(Name, Bits, Default)
+ #define ENUM_CODEGENOPT(Name, Type, Bits, Default)                             \
+diff --git a/flang/lib/Frontend/CompilerInvocation.cpp b/flang/lib/Frontend/CompilerInvocation.cpp
+index b00a2a3d399f..0ad63b06dd1b 100644
+--- a/flang/lib/Frontend/CompilerInvocation.cpp
++++ b/flang/lib/Frontend/CompilerInvocation.cpp
+@@ -125,9 +125,6 @@ static void parseCodeGenArgs(Fortran::frontend::CodeGenOptions &opts,
+                    clang::driver::options::OPT_fno_debug_pass_manager, false))
+     opts.DebugPassManager = 1;
+ 
+-  for (auto *a : args.filtered(clang::driver::options::OPT_fpass_plugin_EQ))
+-    opts.LLVMPassPlugins.push_back(a->getValue());
+-
+   // -mrelocation-model option.
+   if (const llvm::opt::Arg *A =
+           args.getLastArg(clang::driver::options::OPT_mrelocation_model)) {
+diff --git a/flang/lib/Frontend/FrontendActions.cpp b/flang/lib/Frontend/FrontendActions.cpp
+index d1c1ec10563d..be91a790c26f 100644
+--- a/flang/lib/Frontend/FrontendActions.cpp
++++ b/flang/lib/Frontend/FrontendActions.cpp
+@@ -46,7 +46,6 @@
+ #include "llvm/IRReader/IRReader.h"
+ #include "llvm/MC/TargetRegistry.h"
+ #include "llvm/Passes/PassBuilder.h"
+-#include "llvm/Passes/PassPlugin.h"
+ #include "llvm/Passes/StandardInstrumentations.h"
+ #include "llvm/Support/ErrorHandling.h"
+ #include "llvm/Support/SourceMgr.h"
+@@ -661,7 +660,6 @@ static void generateMachineCodeOrAssemblyImpl(clang::DiagnosticsEngine &diags,
+ 
+ void CodeGenAction::runOptimizationPipeline(llvm::raw_pwrite_stream &os) {
+   auto opts = getInstance().getInvocation().getCodeGenOpts();
+-  auto &diags = getInstance().getDiagnostics();
+   llvm::OptimizationLevel level = mapToLevel(opts);
+ 
+   // Create the analysis managers.
+@@ -678,17 +676,6 @@ void CodeGenAction::runOptimizationPipeline(llvm::raw_pwrite_stream &os) {
+   si.registerCallbacks(pic, &fam);
+   llvm::PassBuilder pb(tm.get(), pto, pgoOpt, &pic);
+ 
+-  // Attempt to load pass plugins and register their callbacks with PB.
+-  for (auto &pluginFile : opts.LLVMPassPlugins) {
+-    auto passPlugin = llvm::PassPlugin::Load(pluginFile);
+-    if (passPlugin) {
+-      passPlugin->registerPassBuilderCallbacks(pb);
+-    } else {
+-      diags.Report(clang::diag::err_fe_unable_to_load_plugin)
+-          << pluginFile << passPlugin.takeError();
+-    }
+-  }
+-
+   // Register all the basic analyses with the managers.
+   pb.registerModuleAnalyses(mam);
+   pb.registerCGSCCAnalyses(cgam);
+diff --git a/flang/test/Driver/driver-help-hidden.f90 b/flang/test/Driver/driver-help-hidden.f90
+index 3ee13fc2108a..8261620a2259 100644
+--- a/flang/test/Driver/driver-help-hidden.f90
++++ b/flang/test/Driver/driver-help-hidden.f90
+@@ -44,7 +44,6 @@
+ ! CHECK-NEXT: -fno-integrated-as     Disable the integrated assembler
+ ! CHECK-NEXT: -fopenacc              Enable OpenACC
+ ! CHECK-NEXT: -fopenmp               Parse OpenMP pragmas and generate parallel code.
+-! CHECK-NEXT: -fpass-plugin=<dsopath> Load pass plugin from a dynamic shared object file (only with new pass manager).
+ ! CHECK-NEXT: -fsyntax-only          Run the preprocessor, parser and semantic analysis stages
+ ! CHECK-NEXT: -fxor-operator         Enable .XOR. as a synonym of .NEQV.
+ ! CHECK-NEXT: -help     Display available options
+@@ -72,3 +71,4 @@
+ 
+ ! Frontend driver -help-hidden is not supported
+ ! ERROR-FLANG-FC1: error: unknown argument: '{{.*}}'
++
+diff --git a/flang/test/Driver/driver-help.f90 b/flang/test/Driver/driver-help.f90
+index e3a38072be7b..99201e03ce77 100644
+--- a/flang/test/Driver/driver-help.f90
++++ b/flang/test/Driver/driver-help.f90
+@@ -42,7 +42,6 @@
+ ! HELP-NEXT: -fno-integrated-as      Disable the integrated assembler
+ ! HELP-NEXT: -fopenacc              Enable OpenACC
+ ! HELP-NEXT: -fopenmp               Parse OpenMP pragmas and generate parallel code.
+-! HELP-NEXT: -fpass-plugin=<dsopath> Load pass plugin from a dynamic shared object file (only with new pass manager).
+ ! HELP-NEXT: -fsyntax-only          Run the preprocessor, parser and semantic analysis stages
+ ! HELP-NEXT: -fxor-operator         Enable .XOR. as a synonym of .NEQV.
+ ! HELP-NEXT: -help                  Display available options
+@@ -121,7 +120,6 @@
+ ! HELP-FC1-NEXT: -fno-reformat          Dump the cooked character stream in -E mode
+ ! HELP-FC1-NEXT: -fopenacc              Enable OpenACC
+ ! HELP-FC1-NEXT: -fopenmp               Parse OpenMP pragmas and generate parallel code.
+-! HELP-FC1-NEXT: -fpass-plugin=<dsopath> Load pass plugin from a dynamic shared object file (only with new pass manager).
+ ! HELP-FC1-NEXT: -fsyntax-only          Run the preprocessor, parser and semantic analysis stages
+ ! HELP-FC1-NEXT: -fxor-operator         Enable .XOR. as a synonym of .NEQV.
+ ! HELP-FC1-NEXT: -help                  Display available options
+diff --git a/flang/test/Driver/frontend-forwarding.f90 b/flang/test/Driver/frontend-forwarding.f90
+index bdf0c31d41f6..14d7985c9898 100644
+--- a/flang/test/Driver/frontend-forwarding.f90
++++ b/flang/test/Driver/frontend-forwarding.f90
+@@ -7,7 +7,6 @@
+ ! RUN:     -fdefault-integer-8 \
+ ! RUN:     -fdefault-real-8 \
+ ! RUN:     -flarge-sizes \
+-! RUN:     -fpass-plugin=Bye%pluginext \
+ ! RUN:     -mllvm -print-before-all\
+ ! RUN:     -P \
+ ! RUN:   | FileCheck %s
+@@ -18,5 +17,4 @@
+ ! CHECK: "-fdefault-integer-8"
+ ! CHECK: "-fdefault-real-8"
+ ! CHECK: "-flarge-sizes"
+-! CHECK: "-fpass-plugin=Bye
+-! CHECK: "-mllvm" "-print-before-all"
++! CHECK:  "-mllvm" "-print-before-all"
+diff --git a/flang/test/Driver/pass-plugin-not-found.f90 b/flang/test/Driver/pass-plugin-not-found.f90
+deleted file mode 100644
+index a93567af6467..000000000000
+--- a/flang/test/Driver/pass-plugin-not-found.f90
++++ /dev/null
+@@ -1,8 +0,0 @@
+-! Check the correct error diagnostic is reported when a pass plugin shared object isn't found
+-
+-! REQUIRES: plugins, shell
+-
+-! RUN: not %flang -fpass-plugin=X.Y %s 2>&1 | FileCheck %s --check-prefix=ERROR
+-! RUN: not %flang_fc1 -emit-llvm -o /dev/null -fpass-plugin=X.Y %s 2>&1 | FileCheck %s --check-prefix=ERROR
+-
+-! ERROR: error: unable to load plugin 'X.Y': 'Could not load library 'X.Y': X.Y: cannot open shared object file: No such file or directory'
+diff --git a/flang/test/Driver/pass-plugin.f90 b/flang/test/Driver/pass-plugin.f90
+deleted file mode 100644
+index 546bd9237d6b..000000000000
+--- a/flang/test/Driver/pass-plugin.f90
++++ /dev/null
+@@ -1,13 +0,0 @@
+-! Verify that the plugin passed to -fpass-plugin is loaded and run
+-
+-! UNSUPPORTED: system-windows
+-
+-! REQUIRES: plugins, shell
+-
+-! RUN: %flang -S %s -fpass-plugin=%llvmshlibdir/Bye%pluginext -Xflang -fdebug-pass-manager -o /dev/null 2>&1 | FileCheck %s
+-! RUN: %flang_fc1 -S %s -fpass-plugin=%llvmshlibdir/Bye%pluginext -fdebug-pass-manager -o /dev/null 2>&1 | FileCheck %s
+-
+-! CHECK: Running pass: {{.*}}Bye on empty_
+-
+-subroutine empty
+-end subroutine empty

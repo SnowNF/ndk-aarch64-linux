@@ -1,0 +1,69 @@
+From 89e56e732d5e89d8715a501158793ac305bc4b70 Mon Sep 17 00:00:00 2001
+From: Jun Zhang <jun@junz.org>
+Date: Wed, 28 Sep 2022 12:30:02 +0800
+Subject: [PATCH] [Clang] Don't warn if deferencing void pointers in
+ unevaluated context
+
+After https://reviews.llvm.org/D134461, Clang will diagnose a warning if
+trying to deference void pointers in C mode. However, this causes a lot
+of noises when compiling a 5.19.11 Linux kernel.
+
+This patch reduces the warning by marking deferencing void pointers in
+unevaluated context OK, like `sizeof(*void_ptr)`, `typeof(*void_ptr)`
+and etc.
+
+Fixes https://github.com/ClangBuiltLinux/linux/issues/1720
+
+Signed-off-by: Jun Zhang <jun@junz.org>
+
+Differential Revision: https://reviews.llvm.org/D134702
+---
+ clang/lib/Sema/SemaExpr.cpp               | 2 +-
+ clang/test/Analysis/misc-ps.m             | 2 +-
+ clang/test/Sema/no-warn-void-ptr-uneval.c | 8 ++++++++
+ 3 files changed, 10 insertions(+), 2 deletions(-)
+ create mode 100644 clang/test/Sema/no-warn-void-ptr-uneval.c
+
+diff --git a/clang/lib/Sema/SemaExpr.cpp b/clang/lib/Sema/SemaExpr.cpp
+index acbf7d534d49..fca9240362e7 100644
+--- a/clang/lib/Sema/SemaExpr.cpp
++++ b/clang/lib/Sema/SemaExpr.cpp
+@@ -14536,7 +14536,7 @@ static QualType CheckIndirectionOperand(Sema &S, Expr *Op, ExprValueKind &VK,
+     //   [...] the expression to which [the unary * operator] is applied shall
+     //   be a pointer to an object type, or a pointer to a function type
+     LangOptions LO = S.getLangOpts();
+-    if (LO.CPlusPlus || !(LO.C99 && IsAfterAmp))
++    if (LO.CPlusPlus || !(LO.C99 && (IsAfterAmp || S.isUnevaluatedContext())))
+       S.Diag(OpLoc, diag::ext_typecheck_indirection_through_void_pointer)
+           << LO.CPlusPlus << OpTy << Op->getSourceRange();
+   }
+diff --git a/clang/test/Analysis/misc-ps.m b/clang/test/Analysis/misc-ps.m
+index 4e3783dfc93a..e9e56315eb26 100644
+--- a/clang/test/Analysis/misc-ps.m
++++ b/clang/test/Analysis/misc-ps.m
+@@ -133,7 +133,7 @@ void handle_sizeof_void(unsigned flag) {
+   void* q;
+   
+   if (!flag) {
+-    if (sizeof(*q) == 1) // expected-warning {{ISO C does not allow indirection on operand of type 'void *'}}
++    if (sizeof(*q) == 1)
+       return;
+     // Infeasibe.
+     *p = 1; // no-warning
+diff --git a/clang/test/Sema/no-warn-void-ptr-uneval.c b/clang/test/Sema/no-warn-void-ptr-uneval.c
+new file mode 100644
+index 000000000000..2aed1180ab0d
+--- /dev/null
++++ b/clang/test/Sema/no-warn-void-ptr-uneval.c
+@@ -0,0 +1,8 @@
++// RUN: %clang_cc1 -fsyntax-only -Wno-unused-value -verify %s
++
++// expected-no-diagnostics
++void foo(void *vp) {
++  sizeof(*vp);
++  sizeof(*(vp));
++  void inner(typeof(*vp));
++}
+-- 
+2.39.0.rc0.267.gcb52ba06e7-goog
+

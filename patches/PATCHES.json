@@ -1,0 +1,1011 @@
+[
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] Pass through even more LIBCXX_* variables to libfuzzer's custom lib++"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/80aa41d9df3dbe4ee673b3b0a8b41854b69820c5.patch",
+        "version_range": {
+            "from": 450784,
+            "until": 464881
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [clang-format] Fix the return code of git-clang-format"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/f9a2f6b6aecf0dd2b484d99458c99f799caee584.patch",
+        "version_range": {
+            "from": 458507,
+            "until": 469245
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [clang-tidy] Rename the make-confusable-table executable"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/18b4a8bcf3553174f770f09528c9bd01c8cebfe7.patch",
+        "version_range": {
+            "from": 468909,
+            "until": 469268
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [clang-tidy] Add CLANG_TIDY_CONFUSABLE_CHARS_GEN cmake cache variable to avoid building when cross compiling"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/dc95d0c525636aed53a3b38258efa2dff4c83edf.patch",
+        "version_range": {
+            "from": 468909,
+            "until": 469269
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [lld-macho] Support EH frame pointer encodings that use sdata4"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/6c9f6812523a706c11a12e6cb4119b0cf67bbb21.patch",
+        "version_range": {
+            "from": 468909,
+            "until": 469558
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [Orc] Disable use of shared memory on Android"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/ac3cb4ecd0c6ed03c135945d27bbe197d80cba4e.patch",
+        "version_range": {
+            "from": 468909,
+            "until": 469611
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [X86][FP16] Promote FP16->[U]INT to FP16->FP32->[U]INT"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/8b69549dc5c5fa0f5f8632cde1c740bb2c7d8957.patch",
+        "version_range": {
+            "from": 468909,
+            "until": 469725
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [X86][FP16] Promote FP16->[U]INT to FP16->FP32->[U]INT"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/8b69549dc5c5fa0f5f8632cde1c740bb2c7d8957_v1.patch",
+        "version_range": {
+            "from": 469725,
+            "until": 470834
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] Fix std::fpos pretty printer on musl"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/13c6828bedeb815ee7748f82ca36073dbd55a9db.patch",
+        "version_range": {
+            "from": 450784,
+            "until": 473968
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] Set HOME for tests that use module cache path"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/7fe475756b26080fe0bb02e8e317662ccc9a01f1.patch",
+        "version_range": {
+            "from": 450784,
+            "until": 473971
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [CodeGen] Don't zero callee-save registers with zero-call-used-regs (PR57692)"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/b4309800e9dc53a84222a6b57c8615d4a3084988.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 473999
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [libunwind] Handle G in personality string"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/a3153381af48b2e704750255a704748a13c4c4de.patch",
+        "version_range": {
+            "from": 468909,
+            "until": 474537
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] Make MLIR model URLs cache variables"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/32994b7357a33de5a32c03a29691e93911dca4e3.patch",
+        "version_range": {
+            "from": 468909,
+            "until": 474766
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [Clang] Don't warn if deferencing void pointers in unevaluated context"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/89e56e732d5e89d8715a501158793ac305bc4b70.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 475050
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [Clang][AArch64] Support AArch64 target(..) attribute formats."
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/781b491bba9d798e53f7784dced3c2be77c81dd4.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 475490
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] Foward declare ParsedTargetAttr as a struct."
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/6dc5f3ec89748f2aa7cface6698bdcd27c8b329e.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 475493
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[clang][auto-init] Deprecate -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang"
+        },
+        "platforms": [
+            "android",
+            "chromiumos"
+        ],
+        "rel_patch_path": "cherry/aef03c9b3bed5cef5a1940774b80128aefcb4095.patch",
+        "version_range": {
+            "from": 465103,
+            "until": 475520
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [IVDescriptors] Before moving an instruction in SinkAfter checking if it is target of other instructions"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/ded26bf6b9175201a0627f019e642bf74d2b48b1.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 475612
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [Clang] fix -Wvoid-ptr-dereference for gnu89"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/2dbfd06f2a8ba6cd7cc3f587808f1ea2c61ad2c7.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 475762
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Revert \"[mlir][sparse] Restore case coverage warning fix\""
+        },
+        "platforms": [
+            "android",
+            "chromiumos"
+        ],
+        "rel_patch_path": "cherry/0df37528ebe495c2974e755be464722d0a8bfda1.patch",
+        "version_range": {
+            "from": 475826,
+            "until": 475870
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Revert \"[compiler-rt][test] Heed COMPILER_RT_DEBUG when compiling unittests\""
+        },
+        "platforms": [
+            "android",
+            "chromiumos"
+        ],
+        "rel_patch_path": "cherry/68f4ceaf9b4e68c111e3cccc3cc09ea7783fdf0d.patch",
+        "version_range": {
+            "from": 475826,
+            "until": 475871
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Revert \"[flang] Add -fpass-plugin option to Flang frontend\""
+        },
+        "platforms": [
+            "android",
+            "chromiumos"
+        ],
+        "rel_patch_path": "cherry/4d1460c77d0095fb5eb974b42d96ca4f4567a7cd.patch",
+        "version_range": {
+            "from": 475826,
+            "until": 475884
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [AArch64][KCFI] Define Size for KCFI_CHECK"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/43f4c215a1a2c12851853b1ed4cc0864387b5a74.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 475913
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Revert \"Revert \"[clang][Lex] Fix a crash on malformed string literals\"\""
+        },
+        "platforms": [
+            "android",
+            "chromiumos"
+        ],
+        "rel_patch_path": "cherry/36f77e20d9aaaf93a9b00ec1bd6b7e3ceb4918b9.patch",
+        "version_range": {
+            "from": 475826,
+            "until": 475952
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [llvm] [test] Add missing canonicalization of LLVM_ENABLE_ZSTD"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/bc4bcbcfc820b324f680e8f260691c38052eedc9.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 475968
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [CMake] Provide Findzstd module"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/2d4fd0b6d5d5582ebb8b521d807104235d67aee4.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 475988
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] Revert \"[DSE] Eliminate noop store even through has clobbering between LoadI and StoreI\""
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/ae5733346f0cc86a82c19fcdc50ce8232fa4777a.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 476004
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Revert \"[DSE] Eliminate noop store even through has clobbering between LoadI and StoreI\""
+        },
+        "platforms": [
+            "android",
+            "chromiumos"
+        ],
+        "rel_patch_path": "cherry/ae5733346f0cc86a82c19fcdc50ce8232fa4777a-modified.patch",
+        "version_range": {
+            "from": 475826,
+            "until": 476004
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Revert \"[lld/mac] Port typo correction for undefined symbols from ELF port\""
+        },
+        "platforms": [
+            "android",
+            "chromiumos"
+        ],
+        "rel_patch_path": "cherry/317b5582b813c51d1fb6723fd44b227b7f274bc7.patch",
+        "version_range": {
+            "from": 475826,
+            "until": 476119
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Revert \"[gn build] Don't set LLVM_UNREACHABLE_OPTIMIZE when llvm_enable_assertions\""
+        },
+        "platforms": [
+            "android",
+            "chromiumos"
+        ],
+        "rel_patch_path": "cherry/b8e71766c835603b6353827dc54939e1740f4867.patch",
+        "version_range": {
+            "from": 475826,
+            "until": 476343
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [llvm] [cmake] Support finding both static and shared zstd via FindZstd"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/56f94ede2af9a327e59fe84dbf8cbbb7bb1dfa79.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 476483
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Revert \"[AArch64] Add support for 128-bit non temporal loads.\""
+        },
+        "platforms": [
+            "android",
+            "chromiumos"
+        ],
+        "rel_patch_path": "cherry/1e723b7ab30360fcf70c3a66dadcc4d5bbb2ace9.patch",
+        "version_range": {
+            "from": 475826,
+            "until": 476506
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [MC] Also sort on IsBKeyFrame"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/ab25678ca5aec3e106f87351eae20b57df5ee602.patch",
+        "version_range": {
+            "from": 468909,
+            "until": 476601
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [MC] Consider IsMTETaggedFrame in CIEKey"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/42cdec1134cb85fef867e50bd66dac49338ab20d.patch",
+        "version_range": {
+            "from": 468909,
+            "until": 476602
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [MC] only run ELF/AArch64 if supported"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/2966acd1217afb26d7eafa92896d01cbd83ed63a.patch",
+        "version_range": {
+            "from": 468909,
+            "until": 476609
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] Fix clang version check in SARIF diagnostics test"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/4e6b071509d6300db024d47c8c2791da71470b11.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 476721
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [Verifier] Relieve intrinsics parameter alignment size constrain"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/6ade6d25110f9dbe8c7fb2f8ce6af951a3c23bc2.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 477417
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] Fix LazyInitialization in tsan"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/1d31ea68c0cbc24d690a58c296b50b61595b6127.patch",
+        "version_range": {
+            "from": 468909,
+            "until": 477745
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [RISCV] Rename lowerFTRUNC_FCEIL_FFLOOR_FROUND to lowerVectorFTRUNC_FCEIL_FFLOOR_FROUND. NFC"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/63ed3d0eeb561aa3ede1b6006c0a1a8830b469da.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 477750
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [RISCV] Move vector cost table lookup out of the switch in getIntrinsicInstrCost. NFC"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/d4dc036e70330ac205a65e4cfbc82cc1dfeda3e8.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 477751
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[clang][driver] Remove dynamic gcc-toolset/devtoolset logic"
+        },
+        "platforms": [
+            "android",
+            "chromiumos"
+        ],
+        "rel_patch_path": "cherry/4a5184f4c357eeafcced3371cd8539fa0ac9f24d.patch",
+        "version_range": {
+            "from": 475826,
+            "until": 477879
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [RISCV] Inline scalar ceil/floor/trunc/rint/round/roundeven."
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/e94dc58dff1d693912904ba7ff743f67b3348d32.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 477968
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[Driver] Add -fsample-profile-use-profi"
+        },
+        "platforms": [
+            "android",
+            "chromiumos"
+        ],
+        "rel_patch_path": "cherry/13f83365cdb5bb752066ee8f4149ae24dfe46cf1.patch",
+        "version_range": {
+            "from": 465103,
+            "until": 479116
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [Support] Use thread safe version of getpwuid and getpwnam."
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/22339e52da4e88af499e232e452f4d8bb358fa05.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 479652
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Revert \"Reapply: Add an error message to the default SIGPIPE handler\""
+        },
+        "platforms": [
+            "android",
+            "chromiumos"
+        ],
+        "rel_patch_path": "cherry/4787efa38066adb51e2c049499d25b3610c0877b.patch",
+        "version_range": {
+            "from": 475826,
+            "until": 480208
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[Orc][examples] Temporarily re-enable tests for the C API and keep an eye on sanitizer bots"
+        },
+        "platforms": [
+            "android",
+            "chromiumos"
+        ],
+        "rel_patch_path": "cherry/bb7b937fad4093493ff862f2207cc1aef73adb84.patch",
+        "version_range": {
+            "from": 475826,
+            "until": 481022
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [X86] Don't zero out %eax if both %al and %ah are used"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/14d4cddc5506fb0fd3c4ac556b4edd970aa151eb.patch",
+        "version_range": {
+            "from": 475365,
+            "until": 483437
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Revert \"[Driver] Remove Joined -X\""
+        },
+        "platforms": [
+            "android",
+            "chromiumos"
+        ],
+        "rel_patch_path": "cherry/7f8bd8ac0658b5e75049fd5c04fcf8c31352f397.patch",
+        "version_range": {
+            "from": 472596,
+            "until": 483835
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] Revert \"[C2x] reject type definitions in offsetof\""
+        },
+        "platforms": [
+            "android",
+            "chromiumos"
+        ],
+        "rel_patch_path": "cherry/596f76a799c933927eec4d8ac8a83c44efff9854.patch",
+        "version_range": {
+            "from": 486419,
+            "until": 486533
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] Revert \"[LoopVectorize] Enable integer Mul and Add as select reduction patterns\""
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/4468e27d9fff153af9826eaf12e0044e67a701a8.patch",
+        "version_range": {
+            "from": 487747,
+            "until": 487849
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [CMake] Support undefined LLVM_NATIVE_ARCH in llvm_map_components_to_libnames()."
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/2e3153059c268700d4b399a8cbba28e9c2514e09.patch",
+        "version_range": {
+            "from": 487747,
+            "until": 487897
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [RISCV] Allow mismatched SmallDataLimit and use Min for conflicting values"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/af128791464810123bcd60a6d9d0902b5c550aef.patch",
+        "version_range": {
+            "from": 487747,
+            "until": 489130
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [MTE stack] fix incorrect offset for st2g"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/a4ab294bc01c8f538951ec223b81bfc1b2c2af6b.patch",
+        "version_range": {
+            "from": 487747,
+            "until": 489310
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] Clear read_fd_set if EINTR received"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/d8bd179a173876a7a9ee11828b63efffe145356c.patch",
+        "version_range": {
+            "from": 487747,
+            "until": 490683
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "[UPSTREAM] [HWASAN][LSAN] Only initialize Symbolizer if leak checking is enabled"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "cherry/7b7db789ff3d8750d1098dcc84aa29d11877d610.patch",
+        "version_range": {
+            "from": 487747,
+            "until": 490743
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Add stubs and headers for nl_types APIs."
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "Add-stubs-and-headers-for-nl_types-APIs.patch",
+        "version_range": {
+            "from": 370808,
+            "until": null
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Ensure that we use our toolchain's lipo, and not the system version"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "Ensure-that-we-use-our-toolchain-s-lipo-and-not-the-.patch",
+        "version_range": {
+            "from": 407598,
+            "until": null
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Undef FS macro for Android x86_64"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "Undef-FS-macro-for-Android-x86_64.patch",
+        "version_range": {
+            "from": 412851,
+            "until": 471894
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Undef CS macro for Android x86_64"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "Undef-CS-macro-for-Android-x86_64.patch",
+        "version_range": {
+            "from": 460955,
+            "until": 470628
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Increase max allocation size to allow BOLTing clang and rustc"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "BOLT-Increase-max-allocation-size-to-allow-BOLTing-clang-and-rustc.patch",
+        "version_range": {
+            "from": 450784,
+            "until": null
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Revert [clang] Improve diagnostics for expansion length mismatch"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "Revert-clang-Improve-diagnostics-for-expansion-length-mismatch.patch",
+        "version_range": {
+            "from": 472431,
+            "until": 475366
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Revert [clang] Improve diagnostics for expansion length mismatch"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "Revert-clang-Improve-diagnostics-for-expansion-length-mismatch-v3.patch",
+        "version_range": {
+            "from": 475366,
+            "until": 487748
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Revert [clang] fix missing initialization of original number of expansions"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "Revert-clang-fix-missing-initialization-of-original-number-of-expansions.patch",
+        "version_range": {
+            "from": 470911,
+            "until": 475366
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Revert [clang] fix missing initialization of original number of expansions"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "Revert-clang-fix-missing-initialization-of-original-number-of-expansions-v3.patch",
+        "version_range": {
+            "from": 475366,
+            "until": 487748
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Revert Enable IAS In Backend"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "Revert-Enable-IAS-In-Backend.patch",
+        "version_range": {
+            "from": 463634,
+            "until": 484093
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Revert Enable IAS In Backend"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "Revert-Enable-IAS-In-Backend-v2.patch",
+        "version_range": {
+            "from": 484093,
+            "until": null
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Support dlclose as a noop in DynamicLibraryTest"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "Support-dlclose-as-a-noop-in-DynamicLibraryTest.patch",
+        "version_range": {
+            "from": 450784,
+            "until": 471972
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Disable vfork/fork events"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "Disable-vfork-fork-events.patch",
+        "version_range": {
+            "from": 468909,
+            "until": null
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Enable targeting riscv64-linux-android"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "Enable-targeting-riscv64-linux-android.patch",
+        "version_range": {
+            "from": 468909,
+            "until": null
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Revert [Driver] Allow target override containing . in executable name"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "Revert-Driver-Allow-target-override-containing-.-in-executable-name.patch",
+        "version_range": {
+            "from": 477979,
+            "until": null
+        }
+    },
+    {
+        "metadata": {
+            "info": [],
+            "title": "Add -wasm-omit-64-bit-function-pointer-cast flag"
+        },
+        "platforms": [
+            "android"
+        ],
+        "rel_patch_path": "Wasm-omit-64-bit-function-pointer-cast.patch",
+        "version_range": {
+            "from": 487747,
+            "until": null
+        }
+    }
+]

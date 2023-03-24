@@ -1,0 +1,56 @@
+blueline:
+    cluster: apct
+    run_target: blueline
+    test_bench_gcl: apct/blueline.gcl
+crosshatch:
+    cluster: apct
+    run_target: crosshatch
+    test_bench_gcl: apct/crosshatch.gcl
+cf_x86_phone:
+    cluster: dockerized-tf-gke
+    run_target: RemoteAvdIDevice
+    test_bench_gcl: cloud_tf/gce-cf-coverage.gcl
+cf_x86_64_phone:
+    cluster: dockerized-tf-gke
+    run_target: RemoteAvdIDevice
+    test_bench_gcl: cloud_tf/gce-cf.gcl
+coral:
+    cluster: apct
+    run_target: coral
+    test_bench_gcl: apct/coral.gcl
+flame:
+    cluster: apct
+    run_target: flame
+    test_bench_gcl: apct/flame.gcl
+bonito:
+    cluster: apct
+    run_target: bonito
+    test_bench_gcl: apct/bonito.gcl
+sargo:
+    cluster: apct
+    run_target: sargo
+    test_bench_gcl: apct/sargo.gcl
+bramble:
+    cluster: apct
+    run_target: bramble
+    test_bench_gcl: apct/bramble.gcl
+redfin:
+    cluster: apct
+    run_target: redfin
+    test_bench_gcl: apct/redfin.gcl
+sunfish:
+    cluster: apct
+    run_target: sunfish
+    test_bench_gcl: apct/sunfish.gcl
+oriole:
+    cluster: apct
+    run_target: oriole
+    test_bench_gcl: apct/oriole.gcl
+raven:
+    cluster: apct
+    run_target: raven
+    test_bench_gcl: apct/raven.gcl
+ndk_translation_all:
+    cluster: dockerized-tf-gke-presubmit
+    run_target: NullDevice
+    test_bench_gcl: cloud_tf/null-presubmit.gcl

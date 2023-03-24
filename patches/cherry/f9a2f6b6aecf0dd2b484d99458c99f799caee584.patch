@@ -1,0 +1,82 @@
+From f9a2f6b6aecf0dd2b484d99458c99f799caee584 Mon Sep 17 00:00:00 2001
+From: Sridhar Gopinath <sridhar.g@utexas.edu>
+Date: Wed, 27 Jul 2022 21:00:37 -0700
+Subject: [PATCH] [clang-format] Fix the return code of git-clang-format
+
+In diff and diffstat modes, the return code is != 0 even when there are no
+changes between commits. This issue can be fixed by passing --exit-code to
+git-diff command that returns 0 when there are no changes and using that as
+the return code for git-clang-format.
+
+Fixes #56736.
+
+Differential Revision: https://reviews.llvm.org/D129311
+---
+ clang/tools/clang-format/git-clang-format | 30 +++++++++++------------
+ 1 file changed, 15 insertions(+), 15 deletions(-)
+
+diff --git a/clang/tools/clang-format/git-clang-format b/clang/tools/clang-format/git-clang-format
+index 96f415e8e561..6a1172e0bf17 100755
+--- a/clang/tools/clang-format/git-clang-format
++++ b/clang/tools/clang-format/git-clang-format
+@@ -198,16 +198,16 @@ def main():
+     return 0
+ 
+   if opts.diff:
+-    print_diff(old_tree, new_tree)
+-  elif opts.diffstat:
+-    print_diffstat(old_tree, new_tree)
+-  else:
+-    changed_files = apply_changes(old_tree, new_tree, force=opts.force,
+-                                  patch_mode=opts.patch)
+-    if (opts.verbose >= 0 and not opts.patch) or opts.verbose >= 1:
+-      print('changed files:')
+-      for filename in changed_files:
+-        print('    %s' % filename)
++    return print_diff(old_tree, new_tree)
++  if opts.diffstat:
++    return print_diffstat(old_tree, new_tree)
++
++  changed_files = apply_changes(old_tree, new_tree, force=opts.force,
++                                patch_mode=opts.patch)
++  if (opts.verbose >= 0 and not opts.patch) or opts.verbose >= 1:
++    print('changed files:')
++    for filename in changed_files:
++      print('    %s' % filename)
+ 
+   return 1
+ 
+@@ -536,8 +536,8 @@ def print_diff(old_tree, new_tree):
+   # We also only print modified files since `new_tree` only contains the files
+   # that were modified, so unmodified files would show as deleted without the
+   # filter.
+-  subprocess.check_call(['git', 'diff', '--diff-filter=M', old_tree, new_tree,
+-                         '--'])
++  return subprocess.run(['git', 'diff', '--diff-filter=M',
++                         '--exit-code', old_tree, new_tree]).returncode
+ 
+ def print_diffstat(old_tree, new_tree):
+   """Print the diffstat between the two trees to stdout."""
+@@ -548,8 +548,8 @@ def print_diffstat(old_tree, new_tree):
+   # We also only print modified files since `new_tree` only contains the files
+   # that were modified, so unmodified files would show as deleted without the
+   # filter.
+-  subprocess.check_call(['git', 'diff', '--diff-filter=M', '--stat', old_tree, new_tree,
+-                         '--'])
++  return subprocess.run(['git', 'diff', '--diff-filter=M', '--exit-code',
++                         '--stat', old_tree, new_tree]).returncode
+ 
+ def apply_changes(old_tree, new_tree, force=False, patch_mode=False):
+   """Apply the changes in `new_tree` to the working directory.
+@@ -575,7 +575,7 @@ def apply_changes(old_tree, new_tree, force=False, patch_mode=False):
+     # better message, "Apply ... to index and worktree".  This is not quite
+     # right, since it won't be applied to the user's index, but oh well.
+     with temporary_index_file(old_tree):
+-      subprocess.check_call(['git', 'checkout', '--patch', new_tree])
++      subprocess.run(['git', 'checkout', '--patch', new_tree], check=True)
+     index_tree = old_tree
+   else:
+     with temporary_index_file(new_tree):
+-- 
+2.37.1.595.g718a3a8f04-goog
+

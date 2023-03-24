@@ -1,0 +1,200 @@
+commit 68f4ceaf9b4e68c111e3cccc3cc09ea7783fdf0d
+Author: Vitaly Buka <vitalybuka@google.com>
+Date:   Wed Oct 5 09:59:25 2022 -0700
+
+    Revert "[compiler-rt][test] Heed COMPILER_RT_DEBUG when compiling unittests"
+    
+    Breaks some bots, details in https://reviews.llvm.org/D91620
+    
+    This reverts commit 93b1256e38f63a81561288b9a90c5d52af63cb6e.
+
+diff --git a/compiler-rt/CMakeLists.txt b/compiler-rt/CMakeLists.txt
+index ed496313016f..689ce1a8ee6e 100644
+--- a/compiler-rt/CMakeLists.txt
++++ b/compiler-rt/CMakeLists.txt
+@@ -406,11 +406,9 @@ if (NOT MSVC)
+ 
+   # Build with optimization, unless we're in debug mode.
+   if(COMPILER_RT_DEBUG)
+-    list(APPEND SANITIZER_COMMON_CFLAGS -O0)
+-    list(APPEND COMPILER_RT_TEST_COMPILER_CFLAGS -O0)
++    list(APPEND SANITIZER_COMMON_CFLAGS -O1)
+   else()
+     list(APPEND SANITIZER_COMMON_CFLAGS -O3)
+-    list(APPEND COMPILER_RT_TEST_COMPILER_CFLAGS -O3)
+   endif()
+ endif()
+ 
+@@ -445,7 +443,6 @@ if(MSVC)
+     string(REGEX REPLACE "(^| )/Z[i7I]($| )" " /Z7 "
+            "${var_to_update}" "${${var_to_update}}")
+   endforeach()
+-  list(APPEND COMPILER_RT_UNITTEST_CFLAGS -gcodeview)
+ elseif(APPLE)
+   # On Apple platforms use full debug info (i.e. not `-gline-tables-only`)
+   # for all build types so that the runtime can be debugged.
+@@ -455,13 +452,8 @@ elseif(APPLE)
+   list(APPEND SANITIZER_COMMON_CFLAGS -g)
+ elseif(COMPILER_RT_HAS_GLINE_TABLES_ONLY_FLAG AND NOT COMPILER_RT_DEBUG)
+   list(APPEND SANITIZER_COMMON_CFLAGS -gline-tables-only)
+-  # -gline-tables-only must be enough for these tests, so use it if possible.
+-  list(APPEND COMPILER_RT_TEST_COMPILER_CFLAGS -gline-tables-only)
+-  list(APPEND COMPILER_RT_UNITTEST_CFLAGS -gline-tables-only)
+ elseif(COMPILER_RT_HAS_G_FLAG)
+   list(APPEND SANITIZER_COMMON_CFLAGS -g)
+-  list(APPEND COMPILER_RT_TEST_COMPILER_CFLAGS -g)
+-  list(APPEND COMPILER_RT_UNITTEST_CFLAGS -g)
+ endif()
+ 
+ if(LLVM_ENABLE_MODULES)
+diff --git a/compiler-rt/lib/asan/tests/CMakeLists.txt b/compiler-rt/lib/asan/tests/CMakeLists.txt
+index 22e99dfad622..a0c6d2910d6f 100644
+--- a/compiler-rt/lib/asan/tests/CMakeLists.txt
++++ b/compiler-rt/lib/asan/tests/CMakeLists.txt
+@@ -29,6 +29,7 @@ set(ASAN_UNITTEST_COMMON_CFLAGS
+   -I${COMPILER_RT_SOURCE_DIR}/lib/asan
+   -I${COMPILER_RT_SOURCE_DIR}/lib/sanitizer_common/tests
+   -fno-rtti
++  -O2
+   -Wno-format
+   -Werror=sign-compare)
+ append_list_if(COMPILER_RT_HAS_WVARIADIC_MACROS_FLAG -Wno-variadic-macros ASAN_UNITTEST_COMMON_CFLAGS)
+@@ -39,6 +40,16 @@ set(ASAN_UNITTEST_COMMON_LINK_FLAGS
+   ${COMPILER_RT_UNITTEST_LINK_FLAGS}
+   ${COMPILER_RT_UNWINDER_LINK_LIBS}
+   ${SANITIZER_TEST_CXX_LIBRARIES})
++
++# -gline-tables-only must be enough for ASan, so use it if possible.
++if(COMPILER_RT_TEST_COMPILER_ID MATCHES "Clang")
++  list(APPEND ASAN_UNITTEST_COMMON_CFLAGS -gline-tables-only)
++else()
++  list(APPEND ASAN_UNITTEST_COMMON_CFLAGS -g)
++endif()
++if(MSVC)
++  list(APPEND ASAN_UNITTEST_COMMON_CFLAGS -gcodeview)
++endif()
+ list(APPEND ASAN_UNITTEST_COMMON_LINK_FLAGS -g)
+ 
+ # Use -D instead of definitions to please custom compile command.
+diff --git a/compiler-rt/lib/fuzzer/tests/CMakeLists.txt b/compiler-rt/lib/fuzzer/tests/CMakeLists.txt
+index 3c70730654c3..10fcfbaa083e 100644
+--- a/compiler-rt/lib/fuzzer/tests/CMakeLists.txt
++++ b/compiler-rt/lib/fuzzer/tests/CMakeLists.txt
+@@ -4,7 +4,8 @@ set(LIBFUZZER_UNITTEST_CFLAGS
+   ${COMPILER_RT_UNITTEST_CFLAGS}
+   ${COMPILER_RT_GTEST_CFLAGS}
+   -I${COMPILER_RT_SOURCE_DIR}/lib/fuzzer
+-  -fno-rtti)
++  -fno-rtti
++  -O2)
+ 
+ if (APPLE)
+   set(FUZZER_SUPPORTED_OS osx)
+diff --git a/compiler-rt/lib/gwp_asan/tests/CMakeLists.txt b/compiler-rt/lib/gwp_asan/tests/CMakeLists.txt
+index 7a5dcc40f834..ef7ea28b3983 100644
+--- a/compiler-rt/lib/gwp_asan/tests/CMakeLists.txt
++++ b/compiler-rt/lib/gwp_asan/tests/CMakeLists.txt
+@@ -6,6 +6,7 @@ set(GWP_ASAN_UNITTEST_CFLAGS
+   ${SANITIZER_TEST_CXX_CFLAGS}
+   -std=c++17
+   -I${COMPILER_RT_SOURCE_DIR}/lib/
++  -O2
+   -g
+   -fno-omit-frame-pointer)
+ 
+diff --git a/compiler-rt/lib/interception/tests/CMakeLists.txt b/compiler-rt/lib/interception/tests/CMakeLists.txt
+index 5b41e4c6b567..37bf99edaf06 100644
+--- a/compiler-rt/lib/interception/tests/CMakeLists.txt
++++ b/compiler-rt/lib/interception/tests/CMakeLists.txt
+@@ -18,6 +18,7 @@ set(INTERCEPTION_TEST_CFLAGS_COMMON
+   -I${COMPILER_RT_SOURCE_DIR}/lib
+   -I${COMPILER_RT_SOURCE_DIR}/lib/interception
+   -fno-rtti
++  -O2
+   -Werror=sign-compare)
+ 
+ set(INTERCEPTION_TEST_LINK_FLAGS_COMMON
+@@ -25,7 +26,14 @@ set(INTERCEPTION_TEST_LINK_FLAGS_COMMON
+   ${COMPILER_RT_UNWINDER_LINK_LIBS}
+   ${SANITIZER_TEST_CXX_LIBRARIES})
+ 
++# -gline-tables-only must be enough for these tests, so use it if possible.
++if(COMPILER_RT_TEST_COMPILER_ID MATCHES "Clang")
++  list(APPEND INTERCEPTION_TEST_CFLAGS_COMMON -gline-tables-only)
++else()
++  list(APPEND INTERCEPTION_TEST_CFLAGS_COMMON -g)
++endif()
+ if(MSVC)
++  list(APPEND INTERCEPTION_TEST_CFLAGS_COMMON -gcodeview)
+   list(APPEND INTERCEPTION_TEST_LINK_FLAGS_COMMON
+     -Wl,-largeaddressaware
+     -Wl,-nodefaultlib:libcmt,-defaultlib:msvcrt,-defaultlib:oldnames
+diff --git a/compiler-rt/lib/msan/tests/CMakeLists.txt b/compiler-rt/lib/msan/tests/CMakeLists.txt
+index ba78ec50cd26..6c0520d98426 100644
+--- a/compiler-rt/lib/msan/tests/CMakeLists.txt
++++ b/compiler-rt/lib/msan/tests/CMakeLists.txt
+@@ -33,6 +33,7 @@ set(MSAN_UNITTEST_COMMON_CFLAGS
+   -I${COMPILER_RT_SOURCE_DIR}/lib
+   -I${COMPILER_RT_SOURCE_DIR}/lib/msan
+   -g
++  -O2
+   -fno-omit-frame-pointer
+   -mno-omit-leaf-frame-pointer
+   -Wno-deprecated-declarations
+diff --git a/compiler-rt/lib/sanitizer_common/tests/CMakeLists.txt b/compiler-rt/lib/sanitizer_common/tests/CMakeLists.txt
+index f6b49e8fc760..41b89aa43134 100644
+--- a/compiler-rt/lib/sanitizer_common/tests/CMakeLists.txt
++++ b/compiler-rt/lib/sanitizer_common/tests/CMakeLists.txt
+@@ -67,6 +67,7 @@ set(SANITIZER_TEST_CFLAGS_COMMON
+   -I${COMPILER_RT_SOURCE_DIR}/lib
+   -I${COMPILER_RT_SOURCE_DIR}/lib/sanitizer_common
+   -fno-rtti
++  -O2
+   -Werror=sign-compare
+   -Wno-gnu-zero-variadic-macro-arguments
+   )
+@@ -75,6 +76,16 @@ set(SANITIZER_TEST_LINK_FLAGS_COMMON
+   ${COMPILER_RT_UNITTEST_LINK_FLAGS}
+   ${COMPILER_RT_UNWINDER_LINK_LIBS}
+   ${SANITIZER_TEST_CXX_LIBRARIES})
++
++# -gline-tables-only must be enough for these tests, so use it if possible.
++if(COMPILER_RT_TEST_COMPILER_ID MATCHES "Clang")
++  list(APPEND SANITIZER_TEST_CFLAGS_COMMON -gline-tables-only)
++else()
++  list(APPEND SANITIZER_TEST_CFLAGS_COMMON -g)
++endif()
++if(MSVC)
++  list(APPEND SANITIZER_TEST_CFLAGS_COMMON -gcodeview)
++endif()
+ list(APPEND SANITIZER_TEST_LINK_FLAGS_COMMON -g)
+ 
+ if(NOT MSVC)
+diff --git a/compiler-rt/lib/sanitizer_common/tests/sanitizer_type_traits_test.cpp b/compiler-rt/lib/sanitizer_common/tests/sanitizer_type_traits_test.cpp
+index c28ce7a0b402..d6c3ad4b8661 100644
+--- a/compiler-rt/lib/sanitizer_common/tests/sanitizer_type_traits_test.cpp
++++ b/compiler-rt/lib/sanitizer_common/tests/sanitizer_type_traits_test.cpp
+@@ -69,21 +69,15 @@ struct TestStruct {
+ };
+ 
+ TEST(SanitizerCommon, IsTriviallyDestructible) {
+-  // Causes undefined references to __sanitizer::integral_constant<bool,
+-  // true>::value.
+-#if !SANITIZER_DEBUG
+   ASSERT_TRUE((is_trivially_destructible<int>::value));
+   ASSERT_TRUE((is_trivially_destructible<TestStruct>::value));
+-#endif
+   ASSERT_FALSE((is_trivially_destructible<std::vector<int>>::value));
+ }
+ 
+ TEST(SanitizerCommon, IsTriviallyCopyable) {
+-#if !SANITIZER_DEBUG
+   ASSERT_TRUE((is_trivially_copyable<int>::value));
+   ASSERT_TRUE((is_trivially_copyable<TestStruct>::value));
+-#endif
+   ASSERT_FALSE((is_trivially_copyable<std::vector<int>>::value));
+ }
+ 
+-}  // namespace __sanitizer
++}  // namespace __sanitizer
+\ No newline at end of file

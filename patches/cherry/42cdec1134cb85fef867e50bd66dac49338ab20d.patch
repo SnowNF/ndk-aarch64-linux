@@ -1,0 +1,126 @@
+From 42cdec1134cb85fef867e50bd66dac49338ab20d Mon Sep 17 00:00:00 2001
+From: Florian Mayer <fmayer@google.com>
+Date: Mon, 10 Oct 2022 18:17:55 -0700
+Subject: [PATCH] [MC] Consider IsMTETaggedFrame in CIEKey
+
+Before this, we would incorrectly coalesce CIE for frames with and
+without stack MTE.
+
+Reviewed By: eugenis
+
+Differential Revision: https://reviews.llvm.org/D135639
+---
+ llvm/lib/MC/MCDwarf.cpp        | 29 ++++++++++++++++++-----------
+ llvm/test/MC/ELF/AArch64/cfi.s |  3 ++-
+ 2 files changed, 20 insertions(+), 12 deletions(-)
+
+diff --git a/llvm/lib/MC/MCDwarf.cpp b/llvm/lib/MC/MCDwarf.cpp
+index 4bdf6f037c97..2368326f8b09 100644
+--- a/llvm/lib/MC/MCDwarf.cpp
++++ b/llvm/lib/MC/MCDwarf.cpp
+@@ -1774,27 +1774,29 @@ namespace {
+ struct CIEKey {
+   static const CIEKey getEmptyKey() {
+     return CIEKey(nullptr, 0, -1, false, false, static_cast<unsigned>(INT_MAX),
+-                  false);
++                  false, false);
+   }
+ 
+   static const CIEKey getTombstoneKey() {
+     return CIEKey(nullptr, -1, 0, false, false, static_cast<unsigned>(INT_MAX),
+-                  false);
++                  false, false);
+   }
+ 
+   CIEKey(const MCSymbol *Personality, unsigned PersonalityEncoding,
+          unsigned LSDAEncoding, bool IsSignalFrame, bool IsSimple,
+-         unsigned RAReg, bool IsBKeyFrame)
++         unsigned RAReg, bool IsBKeyFrame, bool IsMTETaggedFrame)
+       : Personality(Personality), PersonalityEncoding(PersonalityEncoding),
+         LsdaEncoding(LSDAEncoding), IsSignalFrame(IsSignalFrame),
+-        IsSimple(IsSimple), RAReg(RAReg), IsBKeyFrame(IsBKeyFrame) {}
++        IsSimple(IsSimple), RAReg(RAReg), IsBKeyFrame(IsBKeyFrame),
++        IsMTETaggedFrame(IsMTETaggedFrame) {}
+ 
+   explicit CIEKey(const MCDwarfFrameInfo &Frame)
+       : Personality(Frame.Personality),
+         PersonalityEncoding(Frame.PersonalityEncoding),
+         LsdaEncoding(Frame.LsdaEncoding), IsSignalFrame(Frame.IsSignalFrame),
+         IsSimple(Frame.IsSimple), RAReg(Frame.RAReg),
+-        IsBKeyFrame(Frame.IsBKeyFrame) {}
++        IsBKeyFrame(Frame.IsBKeyFrame),
++        IsMTETaggedFrame(Frame.IsMTETaggedFrame) {}
+ 
+   StringRef PersonalityName() const {
+     if (!Personality)
+@@ -1804,10 +1806,12 @@ struct CIEKey {
+ 
+   bool operator<(const CIEKey &Other) const {
+     return std::make_tuple(PersonalityName(), PersonalityEncoding, LsdaEncoding,
+-                           IsSignalFrame, IsSimple, RAReg, IsBKeyFrame) <
++                           IsSignalFrame, IsSimple, RAReg, IsBKeyFrame,
++                           IsMTETaggedFrame) <
+            std::make_tuple(Other.PersonalityName(), Other.PersonalityEncoding,
+                            Other.LsdaEncoding, Other.IsSignalFrame,
+-                           Other.IsSimple, Other.RAReg, Other.IsBKeyFrame);
++                           Other.IsSimple, Other.RAReg, Other.IsBKeyFrame,
++                           Other.IsMTETaggedFrame);
+   }
+ 
+   const MCSymbol *Personality;
+@@ -1817,6 +1821,7 @@ struct CIEKey {
+   bool IsSimple;
+   unsigned RAReg;
+   bool IsBKeyFrame;
++  bool IsMTETaggedFrame;
+ };
+ 
+ } // end anonymous namespace
+@@ -1828,9 +1833,10 @@ template <> struct DenseMapInfo<CIEKey> {
+   static CIEKey getTombstoneKey() { return CIEKey::getTombstoneKey(); }
+ 
+   static unsigned getHashValue(const CIEKey &Key) {
+-    return static_cast<unsigned>(hash_combine(
+-        Key.Personality, Key.PersonalityEncoding, Key.LsdaEncoding,
+-        Key.IsSignalFrame, Key.IsSimple, Key.RAReg, Key.IsBKeyFrame));
++    return static_cast<unsigned>(
++        hash_combine(Key.Personality, Key.PersonalityEncoding, Key.LsdaEncoding,
++                     Key.IsSignalFrame, Key.IsSimple, Key.RAReg,
++                     Key.IsBKeyFrame, Key.IsMTETaggedFrame));
+   }
+ 
+   static bool isEqual(const CIEKey &LHS, const CIEKey &RHS) {
+@@ -1839,7 +1845,8 @@ template <> struct DenseMapInfo<CIEKey> {
+            LHS.LsdaEncoding == RHS.LsdaEncoding &&
+            LHS.IsSignalFrame == RHS.IsSignalFrame &&
+            LHS.IsSimple == RHS.IsSimple && LHS.RAReg == RHS.RAReg &&
+-           LHS.IsBKeyFrame == RHS.IsBKeyFrame;
++           LHS.IsBKeyFrame == RHS.IsBKeyFrame &&
++           LHS.IsMTETaggedFrame == RHS.IsMTETaggedFrame;
+   }
+ };
+ 
+diff --git a/llvm/test/MC/ELF/AArch64/cfi.s b/llvm/test/MC/ELF/AArch64/cfi.s
+index b70477da7cbf..033c8d9c0409 100644
+--- a/llvm/test/MC/ELF/AArch64/cfi.s
++++ b/llvm/test/MC/ELF/AArch64/cfi.s
+@@ -24,6 +24,7 @@ f2:
+ f3:
+         .cfi_startproc
+         .cfi_lsda 0x3, bar
++        .cfi_mte_tagged_frame
+         nop
+         .cfi_endproc
+ 
+@@ -244,7 +245,7 @@ f37:
+ // CHECK-NEXT:      0000: 10000000 00000000 017A5200 017C1E01  |.........zR..|..|
+ // CHECK-NEXT:      0010: 1B000000 10000000 18000000 00000000  |................|
+ // CHECK-NEXT:      0020: 04000000 00000000 14000000 00000000  |................|
+-// CHECK-NEXT:      0030: 017A4C52 00017C1E 02031B0C 1F000000  |.zLR..|.........|
++// CHECK-NEXT:      0030: 017A4C52 4700017C 1E02031B 0C1F0000  |.zLRG..|........|
+ // CHECK-NEXT:      0040: 14000000 1C000000 00000000 04000000  |................|
+ // CHECK-NEXT:      0050: 04000000 00000000 14000000 00000000  |................|
+ // CHECK-NEXT:      0060: 017A4C52 4200017C 1E02031B 0C1F0000  |.zLRB..|........|
+-- 
+2.38.0.rc1.362.ged0d419d3c-goog
+

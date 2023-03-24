@@ -1,0 +1,310 @@
+From a3153381af48b2e704750255a704748a13c4c4de Mon Sep 17 00:00:00 2001
+From: Florian Mayer <fmayer@google.com>
+Date: Fri, 3 Jun 2022 14:33:08 -0700
+Subject: [PATCH] [libunwind] Handle G in personality string
+
+Tested with the following program:
+
+```
+static volatile int* x = nullptr;
+
+void throws()  __attribute__((noinline)) {
+  if (getpid() == 0)
+    return;
+  throw "error";
+}
+
+void maybe_throws()  __attribute__((noinline)) {
+  volatile int y = 1;
+  x = &y;
+  throws();
+  y = 2;
+}
+
+int main(int argc, char** argv) {
+  int y;
+  try {
+    maybe_throws();
+  } catch (const char* e) {
+    //printf("Caught\n");
+  }
+  y = *x;
+  printf("%d\n", y); // should be MTE failure.
+  return 0;
+}
+```
+
+Built using `clang++ -c -O2 -target aarch64-linux -fexceptions -march=armv8-a+memtag -fsanitize=memtag-heap,memtag-stack`
+
+Currently only Android implements runtime support for MTE stack tagging.
+
+Without this change, we crash on `__cxa_get_globals` when trying to catch
+the exception (because the stack frame __cxa_get_globals frame will fail due
+to tags left behind on the stack). With this change, we crash on the `y = *x;`
+as expected, because the stack frame has been untagged, but the pointer hasn't.
+
+Reviewed By: #libunwind, compnerd, MaskRay
+
+Differential Revision: https://reviews.llvm.org/D128998
+---
+ libunwind/src/DwarfInstructions.hpp | 34 ++++++++++++++++++++++++++---
+ libunwind/src/DwarfParser.hpp       |  5 +++++
+ libunwind/src/UnwindCursor.hpp      | 31 +++++++++++++-------------
+ libunwind/src/UnwindLevel1.c        | 17 ++++++++-------
+ libunwind/src/libunwind.cpp         |  9 ++++++++
+ 5 files changed, 69 insertions(+), 27 deletions(-)
+
+diff --git a/libunwind/src/DwarfInstructions.hpp b/libunwind/src/DwarfInstructions.hpp
+index f81f96ce5a36..1901c8a8aee7 100644
+--- a/libunwind/src/DwarfInstructions.hpp
++++ b/libunwind/src/DwarfInstructions.hpp
+@@ -35,7 +35,7 @@ public:
+   typedef typename A::sint_t sint_t;
+ 
+   static int stepWithDwarf(A &addressSpace, pint_t pc, pint_t fdeStart,
+-                           R &registers, bool &isSignalFrame);
++                           R &registers, bool &isSignalFrame, bool stage2);
+ 
+ private:
+ 
+@@ -190,7 +190,7 @@ bool DwarfInstructions<A, R>::getRA_SIGN_STATE(A &addressSpace, R registers,
+ template <typename A, typename R>
+ int DwarfInstructions<A, R>::stepWithDwarf(A &addressSpace, pint_t pc,
+                                            pint_t fdeStart, R &registers,
+-                                           bool &isSignalFrame) {
++                                           bool &isSignalFrame, bool stage2) {
+   FDE_Info fdeInfo;
+   CIE_Info cieInfo;
+   if (CFI_Parser<A>::decodeFDE(addressSpace, fdeStart, &fdeInfo,
+@@ -201,7 +201,35 @@ int DwarfInstructions<A, R>::stepWithDwarf(A &addressSpace, pint_t pc,
+       // get pointer to cfa (architecture specific)
+       pint_t cfa = getCFA(addressSpace, prolog, registers);
+ 
+-       // restore registers that DWARF says were saved
++      (void)stage2;
++#if defined(_LIBUNWIND_TARGET_AARCH64)
++      if (stage2 && cieInfo.mteTaggedFrame) {
++        pint_t sp = registers.getSP();
++        pint_t p = sp;
++        // AArch64 doesn't require the value of SP to be 16-byte aligned at
++        // all times, only at memory accesses and public interfaces [1]. Thus,
++        // a signal could arrive at a point where SP is not aligned properly.
++        // In that case, the kernel fixes up [2] the signal frame, but we
++        // still have a misaligned SP in the previous frame. If that signal
++        // handler caused stack unwinding, we would have an unaligned SP.
++        // We do not need to fix up the CFA, as that is the SP at a "public
++        // interface".
++        // [1]:
++        // https://github.com/ARM-software/abi-aa/blob/main/aapcs64/aapcs64.rst#622the-stack
++        // [2]:
++        // https://github.com/torvalds/linux/blob/1930a6e739c4b4a654a69164dbe39e554d228915/arch/arm64/kernel/signal.c#L718
++        p &= ~0xfULL;
++        // CFA is the bottom of the current stack frame.
++        for (; p < cfa; p += 16) {
++          __asm__ __volatile__(".arch_extension memtag\n"
++                               "stg %[Ptr], [%[Ptr]]\n"
++                               :
++                               : [Ptr] "r"(p)
++                               : "memory");
++        }
++      }
++#endif
++      // restore registers that DWARF says were saved
+       R newRegisters = registers;
+ 
+       // Typically, the CFA is the stack pointer at the call site in
+diff --git a/libunwind/src/DwarfParser.hpp b/libunwind/src/DwarfParser.hpp
+index 0240334eaa73..0682942ce137 100644
+--- a/libunwind/src/DwarfParser.hpp
++++ b/libunwind/src/DwarfParser.hpp
+@@ -51,6 +51,7 @@ public:
+     uint8_t   returnAddressRegister;
+ #if defined(_LIBUNWIND_TARGET_AARCH64)
+     bool      addressesSignedWithBKey;
++    bool      mteTaggedFrame;
+ #endif
+   };
+ 
+@@ -325,6 +326,7 @@ const char *CFI_Parser<A>::parseCIE(A &addressSpace, pint_t cie,
+   cieInfo->fdesHaveAugmentationData = false;
+ #if defined(_LIBUNWIND_TARGET_AARCH64)
+   cieInfo->addressesSignedWithBKey = false;
++  cieInfo->mteTaggedFrame = false;
+ #endif
+   cieInfo->cieStart = cie;
+   pint_t p = cie;
+@@ -394,6 +396,9 @@ const char *CFI_Parser<A>::parseCIE(A &addressSpace, pint_t cie,
+       case 'B':
+         cieInfo->addressesSignedWithBKey = true;
+         break;
++      case 'G':
++        cieInfo->mteTaggedFrame = true;
++        break;
+ #endif
+       default:
+         // ignore unknown letters
+diff --git a/libunwind/src/UnwindCursor.hpp b/libunwind/src/UnwindCursor.hpp
+index 27eca0819149..f1184970f3ce 100644
+--- a/libunwind/src/UnwindCursor.hpp
++++ b/libunwind/src/UnwindCursor.hpp
+@@ -442,7 +442,7 @@ public:
+   virtual void setFloatReg(int, unw_fpreg_t) {
+     _LIBUNWIND_ABORT("setFloatReg not implemented");
+   }
+-  virtual int step() { _LIBUNWIND_ABORT("step not implemented"); }
++  virtual int step(bool = false) { _LIBUNWIND_ABORT("step not implemented"); }
+   virtual void getInfo(unw_proc_info_t *) {
+     _LIBUNWIND_ABORT("getInfo not implemented");
+   }
+@@ -494,7 +494,7 @@ public:
+   virtual bool        validFloatReg(int);
+   virtual unw_fpreg_t getFloatReg(int);
+   virtual void        setFloatReg(int, unw_fpreg_t);
+-  virtual int         step();
++  virtual int         step(bool = false);
+   virtual void        getInfo(unw_proc_info_t *);
+   virtual void        jumpto();
+   virtual bool        isSignalFrame();
+@@ -925,7 +925,7 @@ public:
+   virtual bool        validFloatReg(int);
+   virtual unw_fpreg_t getFloatReg(int);
+   virtual void        setFloatReg(int, unw_fpreg_t);
+-  virtual int         step();
++  virtual int         step(bool stage2 = false);
+   virtual void        getInfo(unw_proc_info_t *);
+   virtual void        jumpto();
+   virtual bool        isSignalFrame();
+@@ -999,22 +999,21 @@ private:
+                          pint_t pc, uintptr_t dso_base);
+   bool getInfoFromDwarfSection(pint_t pc, const UnwindInfoSections &sects,
+                                             uint32_t fdeSectionOffsetHint=0);
+-  int stepWithDwarfFDE() {
+-    return DwarfInstructions<A, R>::stepWithDwarf(_addressSpace,
+-                                              (pint_t)this->getReg(UNW_REG_IP),
+-                                              (pint_t)_info.unwind_info,
+-                                              _registers, _isSignalFrame);
++  int stepWithDwarfFDE(bool stage2) {
++    return DwarfInstructions<A, R>::stepWithDwarf(
++        _addressSpace, (pint_t)this->getReg(UNW_REG_IP),
++        (pint_t)_info.unwind_info, _registers, _isSignalFrame, stage2);
+   }
+ #endif
+ 
+ #if defined(_LIBUNWIND_SUPPORT_COMPACT_UNWIND)
+   bool getInfoFromCompactEncodingSection(pint_t pc,
+                                             const UnwindInfoSections &sects);
+-  int stepWithCompactEncoding() {
+-  #if defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
++  int stepWithCompactEncoding(bool stage2 = false) {
++#if defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
+     if ( compactSaysUseDwarf() )
+-      return stepWithDwarfFDE();
+-  #endif
++      return stepWithDwarfFDE(stage2);
++#endif
+     R dummy;
+     return stepWithCompactEncoding(dummy);
+   }
+@@ -2796,8 +2795,8 @@ int UnwindCursor<A, R>::stepThroughSigReturn(Registers_s390x &) {
+ #endif // defined(_LIBUNWIND_CHECK_LINUX_SIGRETURN) &&
+        // defined(_LIBUNWIND_TARGET_S390X)
+ 
+-template <typename A, typename R>
+-int UnwindCursor<A, R>::step() {
++template <typename A, typename R> int UnwindCursor<A, R>::step(bool stage2) {
++  (void)stage2;
+   // Bottom of stack is defined is when unwind info cannot be found.
+   if (_unwindInfoMissing)
+     return UNW_STEP_END;
+@@ -2811,13 +2810,13 @@ int UnwindCursor<A, R>::step() {
+ #endif
+   {
+ #if defined(_LIBUNWIND_SUPPORT_COMPACT_UNWIND)
+-    result = this->stepWithCompactEncoding();
++    result = this->stepWithCompactEncoding(stage2);
+ #elif defined(_LIBUNWIND_SUPPORT_SEH_UNWIND)
+     result = this->stepWithSEHData();
+ #elif defined(_LIBUNWIND_SUPPORT_TBTAB_UNWIND)
+     result = this->stepWithTBTableData();
+ #elif defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
+-    result = this->stepWithDwarfFDE();
++    result = this->stepWithDwarfFDE(stage2);
+ #elif defined(_LIBUNWIND_ARM_EHABI)
+     result = this->stepWithEHABI();
+ #else
+diff --git a/libunwind/src/UnwindLevel1.c b/libunwind/src/UnwindLevel1.c
+index 43f27849fd03..7160680467e4 100644
+--- a/libunwind/src/UnwindLevel1.c
++++ b/libunwind/src/UnwindLevel1.c
+@@ -165,7 +165,7 @@ unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
+   }
+   return _URC_NO_REASON;
+ }
+-
++extern int __unw_step_stage2(unw_cursor_t *);
+ 
+ static _Unwind_Reason_Code
+ unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *exception_object) {
+@@ -182,16 +182,16 @@ unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
+ 
+     // Ask libunwind to get next frame (skip over first which is
+     // _Unwind_RaiseException).
+-    int stepResult = __unw_step(cursor);
++    int stepResult = __unw_step_stage2(cursor);
+     if (stepResult == 0) {
+       _LIBUNWIND_TRACE_UNWINDING(
+-          "unwind_phase2(ex_ojb=%p): __unw_step() reached "
++          "unwind_phase2(ex_ojb=%p): __unw_step_stage2() reached "
+           "bottom => _URC_END_OF_STACK",
+           (void *)exception_object);
+       return _URC_END_OF_STACK;
+     } else if (stepResult < 0) {
+       _LIBUNWIND_TRACE_UNWINDING(
+-          "unwind_phase2(ex_ojb=%p): __unw_step failed => "
++          "unwind_phase2(ex_ojb=%p): __unw_step_stage2 failed => "
+           "_URC_FATAL_PHASE1_ERROR",
+           (void *)exception_object);
+       return _URC_FATAL_PHASE2_ERROR;
+@@ -296,14 +296,15 @@ unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
+   // frame walked is unwind_phase2_forced.
+   unsigned framesWalked = 1;
+   // Walk each frame until we reach where search phase said to stop
+-  while (__unw_step(cursor) > 0) {
++  while (__unw_step_stage2(cursor) > 0) {
+ 
+     // Update info about this frame.
+     unw_proc_info_t frameInfo;
+     if (__unw_get_proc_info(cursor, &frameInfo) != UNW_ESUCCESS) {
+-      _LIBUNWIND_TRACE_UNWINDING("unwind_phase2_forced(ex_ojb=%p): __unw_step "
+-                                 "failed => _URC_END_OF_STACK",
+-                                 (void *)exception_object);
++      _LIBUNWIND_TRACE_UNWINDING(
++          "unwind_phase2_forced(ex_ojb=%p): __unw_step_stage2 "
++          "failed => _URC_END_OF_STACK",
++          (void *)exception_object);
+       return _URC_FATAL_PHASE2_ERROR;
+     }
+ 
+diff --git a/libunwind/src/libunwind.cpp b/libunwind/src/libunwind.cpp
+index 3f9e051acf9b..292544d91429 100644
+--- a/libunwind/src/libunwind.cpp
++++ b/libunwind/src/libunwind.cpp
+@@ -181,6 +181,15 @@ _LIBUNWIND_HIDDEN int __unw_step(unw_cursor_t *cursor) {
+ }
+ _LIBUNWIND_WEAK_ALIAS(__unw_step, unw_step)
+ 
++// Move cursor to next frame and for stage2 of unwinding.
++// This resets MTE tags of tagged frames to zero.
++extern "C" _LIBUNWIND_HIDDEN int __unw_step_stage2(unw_cursor_t *cursor) {
++  _LIBUNWIND_TRACE_API("__unw_step_stage2(cursor=%p)",
++                       static_cast<void *>(cursor));
++  AbstractUnwindCursor *co = (AbstractUnwindCursor *)cursor;
++  return co->step(true);
++}
++
+ /// Get unwind info at cursor position in stack frame.
+ _LIBUNWIND_HIDDEN int __unw_get_proc_info(unw_cursor_t *cursor,
+                                           unw_proc_info_t *info) {
+-- 
+2.37.3.998.g577e59143f-goog
+

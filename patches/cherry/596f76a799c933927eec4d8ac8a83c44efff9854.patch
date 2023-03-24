@@ -1,0 +1,397 @@
+From 596f76a799c933927eec4d8ac8a83c44efff9854 Mon Sep 17 00:00:00 2001
+From: Yingchi Long <i@lyc.dev>
+Date: Mon, 16 Jan 2023 16:52:50 +0800
+Subject: [PATCH] Revert "[C2x] reject type definitions in offsetof"
+
+This reverts commit e327b52766ed497e4779f4e652b9ad237dfda8e6.
+---
+ clang/docs/ReleaseNotes.rst                   |  3 -
+ .../clang/Basic/DiagnosticSemaKinds.td        |  2 -
+ clang/include/clang/Parse/Parser.h            |  3 -
+ .../clang/Parse/RAIIObjectsForParser.h        | 13 ----
+ clang/include/clang/Sema/Sema.h               | 12 +---
+ clang/lib/Parse/ParseDecl.cpp                 |  2 +-
+ clang/lib/Parse/ParseDeclCXX.cpp              |  2 +-
+ clang/lib/Parse/ParseExpr.cpp                 | 19 ++----
+ clang/lib/Sema/SemaDecl.cpp                   | 12 +---
+ clang/lib/Sema/SemaDeclCXX.cpp                |  6 +-
+ clang/lib/Sema/SemaTemplate.cpp               | 13 ++--
+ clang/test/C/C2x/n2350.c                      | 67 -------------------
+ clang/test/C/drs/dr4xx.c                      |  7 +-
+ clang/test/Parser/declarators.c               |  4 ++
+ clang/test/SemaCXX/offsetof.cpp               | 17 -----
+ 15 files changed, 28 insertions(+), 154 deletions(-)
+ delete mode 100644 clang/test/C/C2x/n2350.c
+
+diff --git a/clang/docs/ReleaseNotes.rst b/clang/docs/ReleaseNotes.rst
+index a75bc1df2d7c..09133f967f01 100644
+--- a/clang/docs/ReleaseNotes.rst
++++ b/clang/docs/ReleaseNotes.rst
+@@ -670,9 +670,6 @@ C2x Feature Support
+       va_start(list); // Invalid in C17 and earlier, valid in C2x and later.
+       va_end(list);
+     }
+-    
+-- Reject type definitions in the ``type`` argument of ``__builtin_offsetof`` 
+-  according to `WG14 N2350 <https://www.open-std.org/jtc1/sc22/wg14/www/docs/n2350.htm>`_.
+ 
+ C++ Language Changes in Clang
+ -----------------------------
+diff --git a/clang/include/clang/Basic/DiagnosticSemaKinds.td b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+index 862ac845bda4..02afb098b239 100644
+--- a/clang/include/clang/Basic/DiagnosticSemaKinds.td
++++ b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+@@ -1650,8 +1650,6 @@ def err_type_defined_in_condition : Error<
+   "%0 cannot be defined in a condition">;
+ def err_type_defined_in_enum : Error<
+   "%0 cannot be defined in an enumeration">;
+-def err_type_defined_in_offsetof : Error<
+-  "%0 cannot be defined in '%select{__builtin_offsetof|offsetof}1'">;
+ 
+ def note_pure_virtual_function : Note<
+   "unimplemented pure virtual method %0 in %1">;
+diff --git a/clang/include/clang/Parse/Parser.h b/clang/include/clang/Parse/Parser.h
+index 6f9581b9ea1f..7a33532eec14 100644
+--- a/clang/include/clang/Parse/Parser.h
++++ b/clang/include/clang/Parse/Parser.h
+@@ -62,7 +62,6 @@ class Parser : public CodeCompletionHandler {
+   friend class ColonProtectionRAIIObject;
+   friend class ParsingOpenMPDirectiveRAII;
+   friend class InMessageExpressionRAIIObject;
+-  friend class OffsetOfStateRAIIObject;
+   friend class PoisonSEHIdentifiersRAIIObject;
+   friend class ObjCDeclContextSwitch;
+   friend class ParenBraceBracketBalancer;
+@@ -249,8 +248,6 @@ class Parser : public CodeCompletionHandler {
+   /// function call.
+   bool CalledSignatureHelp = false;
+ 
+-  Sema::OffsetOfKind OffsetOfState = Sema::OffsetOfKind::OOK_Outside;
+-
+   /// The "depth" of the template parameters currently being parsed.
+   unsigned TemplateParameterDepth;
+ 
+diff --git a/clang/include/clang/Parse/RAIIObjectsForParser.h b/clang/include/clang/Parse/RAIIObjectsForParser.h
+index cb525c9d0edd..5ae609e60073 100644
+--- a/clang/include/clang/Parse/RAIIObjectsForParser.h
++++ b/clang/include/clang/Parse/RAIIObjectsForParser.h
+@@ -341,19 +341,6 @@ namespace clang {
+     }
+   };
+ 
+-  class OffsetOfStateRAIIObject {
+-    Sema::OffsetOfKind &OffsetOfState;
+-    Sema::OffsetOfKind OldValue;
+-
+-  public:
+-    OffsetOfStateRAIIObject(Parser &P, Sema::OffsetOfKind Value)
+-        : OffsetOfState(P.OffsetOfState), OldValue(P.OffsetOfState) {
+-      OffsetOfState = Value;
+-    }
+-
+-    ~OffsetOfStateRAIIObject() { OffsetOfState = OldValue; }
+-  };
+-
+   /// RAII object that makes sure paren/bracket/brace count is correct
+   /// after declaration/statement parsing, even when there's a parsing error.
+   class ParenBraceBracketBalancer {
+diff --git a/clang/include/clang/Sema/Sema.h b/clang/include/clang/Sema/Sema.h
+index 35e319879a98..30c5ea608f7a 100644
+--- a/clang/include/clang/Sema/Sema.h
++++ b/clang/include/clang/Sema/Sema.h
+@@ -3304,16 +3304,6 @@ public:
+     TUK_Friend       // Friend declaration:  'friend struct foo;'
+   };
+ 
+-  enum OffsetOfKind {
+-    // Not parsing a type within __builtin_offsetof.
+-    OOK_Outside,
+-    // Parsing a type within __builtin_offsetof.
+-    OOK_Builtin,
+-    // Parsing a type within macro "offsetof", defined in __buitin_offsetof
+-    // To improve our diagnostic message.
+-    OOK_Macro,
+-  };
+-
+   Decl *ActOnTag(Scope *S, unsigned TagSpec, TagUseKind TUK,
+                  SourceLocation KWLoc, CXXScopeSpec &SS, IdentifierInfo *Name,
+                  SourceLocation NameLoc, const ParsedAttributesView &Attr,
+@@ -3322,7 +3312,7 @@ public:
+                  bool &IsDependent, SourceLocation ScopedEnumKWLoc,
+                  bool ScopedEnumUsesClassTag, TypeResult UnderlyingType,
+                  bool IsTypeSpecifier, bool IsTemplateParamOrArg,
+-                 OffsetOfKind OOK, SkipBodyInfo *SkipBody = nullptr);
++                 SkipBodyInfo *SkipBody = nullptr);
+ 
+   Decl *ActOnTemplatedFriendTag(Scope *S, SourceLocation FriendLoc,
+                                 unsigned TagSpec, SourceLocation TagLoc,
+diff --git a/clang/lib/Parse/ParseDecl.cpp b/clang/lib/Parse/ParseDecl.cpp
+index 75937c0d6a95..56fe9c3ac7ba 100644
+--- a/clang/lib/Parse/ParseDecl.cpp
++++ b/clang/lib/Parse/ParseDecl.cpp
+@@ -4972,7 +4972,7 @@ void Parser::ParseEnumSpecifier(SourceLocation StartLoc, DeclSpec &DS,
+       DSC == DeclSpecContext::DSC_type_specifier,
+       DSC == DeclSpecContext::DSC_template_param ||
+           DSC == DeclSpecContext::DSC_template_type_arg,
+-      OffsetOfState, &SkipBody);
++      &SkipBody);
+ 
+   if (SkipBody.ShouldSkip) {
+     assert(TUK == Sema::TUK_Definition && "can only skip a definition");
+diff --git a/clang/lib/Parse/ParseDeclCXX.cpp b/clang/lib/Parse/ParseDeclCXX.cpp
+index 227c1df2bddd..5d721f48140f 100644
+--- a/clang/lib/Parse/ParseDeclCXX.cpp
++++ b/clang/lib/Parse/ParseDeclCXX.cpp
+@@ -2074,7 +2074,7 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
+         DSC == DeclSpecContext::DSC_type_specifier,
+         DSC == DeclSpecContext::DSC_template_param ||
+             DSC == DeclSpecContext::DSC_template_type_arg,
+-        OffsetOfState, &SkipBody);
++        &SkipBody);
+ 
+     // If ActOnTag said the type was dependent, try again with the
+     // less common call.
+diff --git a/clang/lib/Parse/ParseExpr.cpp b/clang/lib/Parse/ParseExpr.cpp
+index e8bdf5f421af..b1bf988307b1 100644
+--- a/clang/lib/Parse/ParseExpr.cpp
++++ b/clang/lib/Parse/ParseExpr.cpp
+@@ -2592,21 +2592,10 @@ ExprResult Parser::ParseBuiltinPrimaryExpression() {
+   }
+   case tok::kw___builtin_offsetof: {
+     SourceLocation TypeLoc = Tok.getLocation();
+-    auto K = Sema::OffsetOfKind::OOK_Builtin;
+-    if (Tok.getLocation().isMacroID()) {
+-      StringRef MacroName = Lexer::getImmediateMacroNameForDiagnostics(
+-          Tok.getLocation(), PP.getSourceManager(), getLangOpts());
+-      if (MacroName == "offsetof")
+-        K = Sema::OffsetOfKind::OOK_Macro;
+-    }
+-    TypeResult Ty;
+-    {
+-      OffsetOfStateRAIIObject InOffsetof(*this, K);
+-      Ty = ParseTypeName();
+-      if (Ty.isInvalid()) {
+-        SkipUntil(tok::r_paren, StopAtSemi);
+-        return ExprError();
+-      }
++    TypeResult Ty = ParseTypeName();
++    if (Ty.isInvalid()) {
++      SkipUntil(tok::r_paren, StopAtSemi);
++      return ExprError();
+     }
+ 
+     if (ExpectAndConsume(tok::comma)) {
+diff --git a/clang/lib/Sema/SemaDecl.cpp b/clang/lib/Sema/SemaDecl.cpp
+index 072bc9b5dc26..e3fd4045e8bb 100644
+--- a/clang/lib/Sema/SemaDecl.cpp
++++ b/clang/lib/Sema/SemaDecl.cpp
+@@ -16592,7 +16592,7 @@ Decl *Sema::ActOnTag(Scope *S, unsigned TagSpec, TagUseKind TUK,
+                      SourceLocation ScopedEnumKWLoc,
+                      bool ScopedEnumUsesClassTag, TypeResult UnderlyingType,
+                      bool IsTypeSpecifier, bool IsTemplateParamOrArg,
+-                     OffsetOfKind OOK, SkipBodyInfo *SkipBody) {
++                     SkipBodyInfo *SkipBody) {
+   // If this is not a definition, it must have a name.
+   IdentifierInfo *OrigName = Name;
+   assert((Name != nullptr || TUK == TUK_Definition) &&
+@@ -17365,16 +17365,10 @@ CreateNewDecl:
+                                cast_or_null<RecordDecl>(PrevDecl));
+   }
+ 
+-  if (OOK != OOK_Outside && TUK == TUK_Definition) {
+-    Diag(New->getLocation(), diag::err_type_defined_in_offsetof)
+-        << Context.getTagDeclType(New) << static_cast<int>(OOK == OOK_Macro);
+-    Invalid = true;
+-  }
+-
+   // C++11 [dcl.type]p3:
+   //   A type-specifier-seq shall not define a class or enumeration [...].
+-  if (!Invalid && getLangOpts().CPlusPlus &&
+-      (IsTypeSpecifier || IsTemplateParamOrArg) && TUK == TUK_Definition) {
++  if (getLangOpts().CPlusPlus && (IsTypeSpecifier || IsTemplateParamOrArg) &&
++      TUK == TUK_Definition) {
+     Diag(New->getLocation(), diag::err_type_defined_in_type_specifier)
+       << Context.getTagDeclType(New);
+     Invalid = true;
+diff --git a/clang/lib/Sema/SemaDeclCXX.cpp b/clang/lib/Sema/SemaDeclCXX.cpp
+index ea52b703b563..0d7e3e893878 100644
+--- a/clang/lib/Sema/SemaDeclCXX.cpp
++++ b/clang/lib/Sema/SemaDeclCXX.cpp
+@@ -16962,15 +16962,15 @@ Decl *Sema::ActOnTemplatedFriendTag(Scope *S, SourceLocation FriendLoc,
+     if (SS.isEmpty()) {
+       bool Owned = false;
+       bool IsDependent = false;
+-      return ActOnTag(S, TagSpec, TUK_Friend, TagLoc, SS, Name, NameLoc, Attr,
+-                      AS_public,
++      return ActOnTag(S, TagSpec, TUK_Friend, TagLoc, SS, Name, NameLoc,
++                      Attr, AS_public,
+                       /*ModulePrivateLoc=*/SourceLocation(),
+                       MultiTemplateParamsArg(), Owned, IsDependent,
+                       /*ScopedEnumKWLoc=*/SourceLocation(),
+                       /*ScopedEnumUsesClassTag=*/false,
+                       /*UnderlyingType=*/TypeResult(),
+                       /*IsTypeSpecifier=*/false,
+-                      /*IsTemplateParamOrArg=*/false, /*OOK=*/OOK_Outside);
++                      /*IsTemplateParamOrArg=*/false);
+     }
+ 
+     NestedNameSpecifierLoc QualifierLoc = SS.getWithLocInContext(Context);
+diff --git a/clang/lib/Sema/SemaTemplate.cpp b/clang/lib/Sema/SemaTemplate.cpp
+index 31c2bf5d8127..17f0d0263a3d 100644
+--- a/clang/lib/Sema/SemaTemplate.cpp
++++ b/clang/lib/Sema/SemaTemplate.cpp
+@@ -10181,12 +10181,13 @@ Sema::ActOnExplicitInstantiation(Scope *S, SourceLocation ExternLoc,
+ 
+   bool Owned = false;
+   bool IsDependent = false;
+-  Decl *TagD = ActOnTag(
+-      S, TagSpec, Sema::TUK_Reference, KWLoc, SS, Name, NameLoc, Attr, AS_none,
+-      /*ModulePrivateLoc=*/SourceLocation(), MultiTemplateParamsArg(), Owned,
+-      IsDependent, SourceLocation(), false, TypeResult(),
+-      /*IsTypeSpecifier*/ false,
+-      /*IsTemplateParamOrArg=*/false, /*OOK=*/OOK_Outside);
++  Decl *TagD = ActOnTag(S, TagSpec, Sema::TUK_Reference,
++                        KWLoc, SS, Name, NameLoc, Attr, AS_none,
++                        /*ModulePrivateLoc=*/SourceLocation(),
++                        MultiTemplateParamsArg(), Owned, IsDependent,
++                        SourceLocation(), false, TypeResult(),
++                        /*IsTypeSpecifier*/false,
++                        /*IsTemplateParamOrArg*/false);
+   assert(!IsDependent && "explicit instantiation of dependent name not yet handled");
+ 
+   if (!TagD)
+diff --git a/clang/test/C/C2x/n2350.c b/clang/test/C/C2x/n2350.c
+deleted file mode 100644
+index 3b4bdec26bf7..000000000000
+--- a/clang/test/C/C2x/n2350.c
++++ /dev/null
+@@ -1,67 +0,0 @@
+-// RUN: %clang_cc1 -fsyntax-only -verify %s
+-// RUN: %clang_cc1 -fsyntax-only -std=c89 -verify %s
+-// RUN: %clang_cc1 -fsyntax-only -std=c99 -verify %s
+-// RUN: %clang_cc1 -fsyntax-only -std=c11 -verify %s
+-// RUN: %clang_cc1 -fsyntax-only -std=c17 -verify %s
+-// RUN: %clang_cc1 -fsyntax-only -std=c2x -verify %s
+-
+-// Reject definitions in __builtin_offsetof
+-// https://www.open-std.org/jtc1/sc22/wg14/www/docs/n2350.htm
+-int simple(void) {
+-  return __builtin_offsetof(struct A // expected-error{{'struct A' cannot be defined in '__builtin_offsetof'}} 
+-  { 
+-    int a;
+-    struct B // expected-error{{'struct B' cannot be defined in '__builtin_offsetof'}} 
+-    {
+-      int c;
+-      int d;
+-    } x;
+-  }, a);
+-}
+-
+-int anonymous_struct() {
+-  return __builtin_offsetof(struct // expected-error-re{{'struct (unnamed at {{.*}})' cannot be defined in '__builtin_offsetof'}}
+-  { 
+-    int a;
+-    int b;
+-  }, a);
+-}
+-
+-int struct_in_second_param() {
+-  struct A {
+-    int a, b;
+-    int x[20];
+-  };
+-  return __builtin_offsetof(struct A, x[sizeof(struct B{int a;})]); // no-error
+-}
+-
+-
+-#define offsetof(TYPE, MEMBER) __builtin_offsetof(TYPE, MEMBER)
+-
+-
+-int macro(void) {
+-  return offsetof(struct A // expected-error{{'struct A' cannot be defined in 'offsetof'}}
+-                           // expected-error@-1{{'struct B' cannot be defined in 'offsetof'}}
+-  { 
+-    int a;
+-    struct B // verifier seems to think the error is emitted by the macro
+-             // In fact the location of the error is "B" on the line above
+-    {
+-      int c;
+-      int d;
+-    } x;
+-  }, a);
+-}
+-
+-#undef offsetof
+-
+-#define offsetof(TYPE, MEMBER) (&((TYPE *)0)->MEMBER)
+-
+-// no warning for traditional offsetof as a function-like macro
+-int * macro_func(void) {
+-  return offsetof(struct A // no-warning
+-  { 
+-    int a;
+-    int b;
+-  }, a);
+-}
+diff --git a/clang/test/C/drs/dr4xx.c b/clang/test/C/drs/dr4xx.c
+index f5ad1b82bec4..768897cd4f2b 100644
+--- a/clang/test/C/drs/dr4xx.c
++++ b/clang/test/C/drs/dr4xx.c
+@@ -352,10 +352,11 @@ void dr496(void) {
+                                              */
+ 
+   /* The DR asked a question about whether defining a new type within offsetof
+-   * is allowed. C2x N2350 made this explicitly undefined behavior, but GCC
+-   * supports it, Clang diagnoses this a UB and rejects it.
++   * is allowed. C2x N2350 made this explicitly undefined behavior, but Clang
++   * has always supported defining a type in this location, and GCC also
++   * supports it.
+    */
+-   (void)__builtin_offsetof(struct S { int a; }, a); /* expected-error{{'struct S' cannot be defined in '__builtin_offsetof'}} */
++   (void)__builtin_offsetof(struct S { int a; }, a);
+ }
+ 
+ /* WG14 DR499: yes
+diff --git a/clang/test/Parser/declarators.c b/clang/test/Parser/declarators.c
+index 3af09817e6b6..464fafeaa0d2 100644
+--- a/clang/test/Parser/declarators.c
++++ b/clang/test/Parser/declarators.c
+@@ -80,6 +80,10 @@ struct test9 {
+ struct test10 { int a; } static test10x;
+ struct test11 { int a; } const test11x;
+ 
++// PR6216
++void test12(void) {
++  (void)__builtin_offsetof(struct { char c; int i; }, i);
++}
+ 
+ // rdar://7608537
+ struct test13 { int a; } (test13x);
+diff --git a/clang/test/SemaCXX/offsetof.cpp b/clang/test/SemaCXX/offsetof.cpp
+index 3eee6fb41d33..c4b288aa05d4 100644
+--- a/clang/test/SemaCXX/offsetof.cpp
++++ b/clang/test/SemaCXX/offsetof.cpp
+@@ -83,20 +83,3 @@ struct Derived : virtual Base {
+                                                               expected-error {{invalid application of 'offsetof' to a field of a virtual base}}
+ };
+ }
+-
+-// Reject definitions in __builtin_offsetof
+-// https://www.open-std.org/jtc1/sc22/wg14/www/docs/n2350.htm
+-int test_definition(void) {
+-  return __builtin_offsetof(struct A // expected-error{{'A' cannot be defined in '__builtin_offsetof'}} 
+-  { 
+-    int a;
+-    struct B // FIXME: error diagnostic message for nested definitions 
+-             // https://reviews.llvm.org/D133574 
+-             // fixme-error{{'A' cannot be defined in '__builtin_offsetof'}} 
+-    {
+-      int c;
+-      int d;
+-    };
+-    B x;
+-  }, a);
+-}
+-- 
+2.30.2
+

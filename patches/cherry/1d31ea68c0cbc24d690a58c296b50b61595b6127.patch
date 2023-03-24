@@ -1,0 +1,33 @@
+From 1d31ea68c0cbc24d690a58c296b50b61595b6127 Mon Sep 17 00:00:00 2001
+From: zijunzhao <zijunzhao@google.com>
+Date: Tue, 25 Oct 2022 00:19:03 +0000
+Subject: [PATCH] Fix LazyInitialization in tsan
+
+In Android, further initialization is always necessary whether preinit_array can be used.
+LazyInitialize is needed regardless of .preinit_array support on platforms where runtime is loaded as dynamic library, e.g. Android.
+
+Reviewed By: dvyukov, vitalybuka
+
+Differential Revision: https://reviews.llvm.org/D135925
+---
+ compiler-rt/lib/tsan/rtl/tsan_rtl.h | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/compiler-rt/lib/tsan/rtl/tsan_rtl.h b/compiler-rt/lib/tsan/rtl/tsan_rtl.h
+index 90164c893ee1..f0918d86d4ec 100644
+--- a/compiler-rt/lib/tsan/rtl/tsan_rtl.h
++++ b/compiler-rt/lib/tsan/rtl/tsan_rtl.h
+@@ -678,8 +678,8 @@ ALWAYS_INLINE
+ void LazyInitialize(ThreadState *thr) {
+   // If we can use .preinit_array, assume that __tsan_init
+   // called from .preinit_array initializes runtime before
+-  // any instrumented code.
+-#if !SANITIZER_CAN_USE_PREINIT_ARRAY
++  // any instrumented code except ANDROID.
++#if (!SANITIZER_CAN_USE_PREINIT_ARRAY || defined(__ANDROID__))
+   if (UNLIKELY(!is_initialized))
+     Initialize(thr);
+ #endif
+-- 
+2.38.0.135.g90850a2211-goog
+

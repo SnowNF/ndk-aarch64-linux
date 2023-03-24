@@ -1,0 +1,79 @@
+From a4ab294bc01c8f538951ec223b81bfc1b2c2af6b Mon Sep 17 00:00:00 2001
+From: Florian Mayer <fmayer@google.com>
+Date: Tue, 7 Feb 2023 18:03:43 -0800
+Subject: [PATCH] [MTE stack] fix incorrect offset for st2g
+
+Reviewed By: eugenis
+
+Differential Revision: https://reviews.llvm.org/D143544
+---
+ .../Target/AArch64/AArch64FrameLowering.cpp   |  7 ++++-
+ .../AArch64/settag-merge-nonaligned-fp.ll     | 31 +++++++++++++++++++
+ 2 files changed, 37 insertions(+), 1 deletion(-)
+ create mode 100644 llvm/test/CodeGen/AArch64/settag-merge-nonaligned-fp.ll
+
+diff --git a/llvm/lib/Target/AArch64/AArch64FrameLowering.cpp b/llvm/lib/Target/AArch64/AArch64FrameLowering.cpp
+index 9f3c14aede7f..a1b87c30f025 100644
+--- a/llvm/lib/Target/AArch64/AArch64FrameLowering.cpp
++++ b/llvm/lib/Target/AArch64/AArch64FrameLowering.cpp
+@@ -3429,7 +3429,11 @@ void TagStoreEdit::emitUnrolled(MachineBasicBlock::iterator InsertI) {
+   Register BaseReg = FrameReg;
+   int64_t BaseRegOffsetBytes = FrameRegOffset.getFixed();
+   if (BaseRegOffsetBytes < kMinOffset ||
+-      BaseRegOffsetBytes + (Size - Size % 32) > kMaxOffset) {
++      BaseRegOffsetBytes + (Size - Size % 32) > kMaxOffset ||
++      // BaseReg can be FP, which is not necessarily aligned to 16-bytes. In
++      // that case, BaseRegOffsetBytes will not be aligned to 16 bytes, which
++      // is required for the offset of ST2G.
++      BaseRegOffsetBytes % 16 != 0) {
+     Register ScratchReg = MRI->createVirtualRegister(&AArch64::GPR64RegClass);
+     emitFrameOffset(*MBB, InsertI, DL, ScratchReg, BaseReg,
+                     StackOffset::getFixed(BaseRegOffsetBytes), TII);
+@@ -3444,6 +3448,7 @@ void TagStoreEdit::emitUnrolled(MachineBasicBlock::iterator InsertI) {
+         InstrSize == 16
+             ? (ZeroData ? AArch64::STZGOffset : AArch64::STGOffset)
+             : (ZeroData ? AArch64::STZ2GOffset : AArch64::ST2GOffset);
++    assert(BaseRegOffsetBytes % 16 == 0);
+     MachineInstr *I = BuildMI(*MBB, InsertI, DL, TII->get(Opcode))
+                           .addReg(AArch64::SP)
+                           .addReg(BaseReg)
+diff --git a/llvm/test/CodeGen/AArch64/settag-merge-nonaligned-fp.ll b/llvm/test/CodeGen/AArch64/settag-merge-nonaligned-fp.ll
+new file mode 100644
+index 000000000000..5b1eb131313f
+--- /dev/null
++++ b/llvm/test/CodeGen/AArch64/settag-merge-nonaligned-fp.ll
+@@ -0,0 +1,31 @@
++; RUN: llc < %s -aarch64-order-frame-objects=0 | FileCheck %s
++; Regression test for bug that occured with FP that was not 16-byte aligned.
++; We would miscalculate the offset for the st2g.
++
++target datalayout = "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128"
++target triple = "aarch64-unknown-linux-android10000"
++
++; Function Attrs: sanitize_memtag sspstrong
++define void @test(ptr %agg.result, float %call, i32 %size) #1 personality ptr null {
++entry:
++  %0 = alloca i64, align 8
++  %1 = alloca i64, align 8
++  %2 = alloca i64, align 8
++  %3 = alloca i64, align 8
++  %4 = alloca i64, i32 %size, align 8  ; VLA to force use of FP for st2g
++  call void @test1(ptr %0)
++  call void @test1(ptr %1)
++  call void @test1(ptr %2)
++  call void @test1(ptr %3)
++  store float %call, ptr %agg.result, align 8
++  ret void
++}
++
++; CHECK-LABEL: test
++; CHECK: sub	x8, x29, #88
++; CHECK: st2g	sp, [x8, #32]
++; CHECK: st2g	sp, [x8]
++
++declare void @test1(ptr)
++
++attributes #1 = { sanitize_memtag sspstrong "frame-pointer"="non-leaf" "target-features"="+mte,+neon" }
+-- 
+2.39.1.581.gbfd45094c4-goog
+

@@ -1,0 +1,49 @@
+From e8bc488e4088d3d4e31c7e61662d3d34b3f63dd9 Mon Sep 17 00:00:00 2001
+From: Craig Topper <craig.topper@sifive.com>
+Date: Mon, 24 Oct 2022 17:14:53 -0700
+Subject: [PATCH] [RISCV] Rename lowerFTRUNC_FCEIL_FFLOOR_FROUND to 
+ lowerVectorFTRUNC_FCEIL_FFLOOR_FROUND. NFC
+
+Extracted from D136508.
+
+Change-Id: I9cbf3f930ee22119a4482a456b2890229af04b86
+---
+ llvm/lib/Target/RISCV/RISCVISelLowering.cpp | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/llvm/lib/Target/RISCV/RISCVISelLowering.cpp b/llvm/lib/Target/RISCV/RISCVISelLowering.cpp
+index 6b124c8372a4..1cea59aa3f90 100644
+--- a/llvm/lib/Target/RISCV/RISCVISelLowering.cpp
++++ b/llvm/lib/Target/RISCV/RISCVISelLowering.cpp
+@@ -1971,8 +1971,8 @@ static RISCVFPRndMode::RoundingMode matchRoundingOp(unsigned Opc) {
+ // and VP_FROUNDEVEN by converting to the integer domain and back. Taking care
+ // to avoid converting values that are nan or already correct.
+ static SDValue
+-lowerFTRUNC_FCEIL_FFLOOR_FROUND(SDValue Op, SelectionDAG &DAG,
+-                                const RISCVSubtarget &Subtarget) {
++lowerVectorFTRUNC_FCEIL_FFLOOR_FROUND(SDValue Op, SelectionDAG &DAG,
++                                      const RISCVSubtarget &Subtarget) {
+   MVT VT = Op.getSimpleValueType();
+   assert(VT.isVector() && "Unexpected type");
+ 
+@@ -3643,7 +3643,7 @@ SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
+   case ISD::FFLOOR:
+   case ISD::FROUND:
+   case ISD::FROUNDEVEN:
+-    return lowerFTRUNC_FCEIL_FFLOOR_FROUND(Op, DAG, Subtarget);
++    return lowerVectorFTRUNC_FCEIL_FFLOOR_FROUND(Op, DAG, Subtarget);
+   case ISD::VECREDUCE_ADD:
+   case ISD::VECREDUCE_UMAX:
+   case ISD::VECREDUCE_SMAX:
+@@ -3969,7 +3969,7 @@ SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
+   case ISD::VP_FFLOOR:
+   case ISD::VP_FROUND:
+   case ISD::VP_FROUNDEVEN:
+-    return lowerFTRUNC_FCEIL_FFLOOR_FROUND(Op, DAG, Subtarget);
++    return lowerVectorFTRUNC_FCEIL_FFLOOR_FROUND(Op, DAG, Subtarget);
+   }
+ }
+ 
+-- 
+2.38.1.584.g0f3c55d4c2-goog
+

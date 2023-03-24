@@ -1,0 +1,73 @@
+From 13c6828bedeb815ee7748f82ca36073dbd55a9db Mon Sep 17 00:00:00 2001
+From: Colin Cross <ccross@android.com>
+Date: Thu, 15 Sep 2022 21:58:24 +0000
+Subject: [PATCH] Fix std::fpos pretty printer on musl
+
+The mbstate_t field in std::fpos is an opaque type provied by libc,
+and musl's implementation does not match the one used by glibc.
+Change StdFposPrinter to verify its assumptions about the layout
+of mbstate_t, and leave out the state printing if it doesn't match.
+
+Reviewed By: #libc, ldionne
+
+Differential Revision: https://reviews.llvm.org/D132983
+---
+ .../libcxx/gdb/gdb_pretty_printer_test.sh.cpp    |  9 +++------
+ libcxx/utils/gdb/libcxx/printers.py              | 16 ++++++++++++----
+ 2 files changed, 15 insertions(+), 10 deletions(-)
+
+diff --git a/libcxx/test/libcxx/gdb/gdb_pretty_printer_test.sh.cpp b/libcxx/test/libcxx/gdb/gdb_pretty_printer_test.sh.cpp
+index 511fe24675a2..3a4e544ae8c8 100644
+--- a/libcxx/test/libcxx/gdb/gdb_pretty_printer_test.sh.cpp
++++ b/libcxx/test/libcxx/gdb/gdb_pretty_printer_test.sh.cpp
+@@ -643,17 +643,14 @@ void shared_ptr_test() {
+ 
+ void streampos_test() {
+   std::streampos test0 = 67;
+-  ComparePrettyPrintToChars(
+-      test0, "std::fpos with stream offset:67 with state: {count:0 value:0}");
++  ComparePrettyPrintToRegex(test0, "^std::fpos with stream offset:67( with state: {count:0 value:0})?$");
+   std::istringstream input("testing the input stream here");
+   std::streampos test1 = input.tellg();
+-  ComparePrettyPrintToChars(
+-      test1, "std::fpos with stream offset:0 with state: {count:0 value:0}");
++  ComparePrettyPrintToRegex(test1, "^std::fpos with stream offset:0( with state: {count:0 value:0})?$");
+   std::unique_ptr<char[]> buffer(new char[5]);
+   input.read(buffer.get(), 5);
+   test1 = input.tellg();
+-  ComparePrettyPrintToChars(
+-      test1, "std::fpos with stream offset:5 with state: {count:0 value:0}");
++  ComparePrettyPrintToRegex(test1, "^std::fpos with stream offset:5( with state: {count:0 value:0})?$");
+ }
+ 
+ int main(int, char**) {
+diff --git a/libcxx/utils/gdb/libcxx/printers.py b/libcxx/utils/gdb/libcxx/printers.py
+index d98b6269f1f9..8d103ad5b399 100644
+--- a/libcxx/utils/gdb/libcxx/printers.py
++++ b/libcxx/utils/gdb/libcxx/printers.py
+@@ -757,10 +757,18 @@ class StdFposPrinter(object):
+         typename = _remove_generics(_prettify_typename(self.val.type))
+         offset = self.val["__off_"]
+         state = self.val["__st_"]
+-        count = state["__count"]
+-        value = state["__value"]["__wch"]
+-        return "%s with stream offset:%s with state: {count:%s value:%s}" % (
+-            typename, offset, count, value)
++
++        state_fields = []
++        if state.type.code == gdb.TYPE_CODE_STRUCT:
++            state_fields = [f.name for f in state.type.fields()]
++
++        state_string = ""
++        if "__count" in state_fields and "__value" in state_fields:
++            count = state["__count"]
++            value = state["__value"]["__wch"]
++            state_string = " with state: {count:%s value:%s}" % (count, value)
++
++        return "%s with stream offset:%s%s" % (typename, offset, state_string)
+ 
+ 
+ class AbstractUnorderedCollectionPrinter(object):
+-- 
+2.37.3.968.ga6b4b080e4-goog
+

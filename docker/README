@@ -1,0 +1,18 @@
+Docker image that builds the Android LLVM toolchain.
+
+# Build using the production Docker image
+Run prod_env.sh
+
+If you see gcloud permission errors, run
+
+  gcloud auth login && gcloud auth configure-docker us-west1-docker.pkg.dev
+
+to set up gcloud Docker authentication.
+
+# Test a new Docker image
+Make your changes and run test_env.sh.
+
+# Deploying a new Docker image
+Command to build and deploy an updated Docker image using Google Cloud Build:
+
+  gcloud builds submit --timeout 3600s --tag us-west1-docker.pkg.dev/google.com/android-llvm-kokoro/android-llvm-ubuntu/llvm-ubuntu
